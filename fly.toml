@@ -1,0 +1,37 @@
+# Fly.io config — FastAPI + SQLite on a persistent volume (free-tier friendly).
+#
+# First-time setup (from an interactive shell, not from Claude):
+#   fly launch --no-deploy          # creates the app; keep this fly.toml
+#   fly volumes create data --size 1 --region <your-region>
+#   fly secrets set CORS_ORIGINS="https://<you>.github.io"   # if frontend is on GH Pages
+#   fly deploy
+#
+# The volume is mounted at /data and DATABASE_URL points SQLite there so your
+# logs survive restarts and redeploys.
+
+app = "workout-schedule"
+primary_region = "iad"   # change to your nearest region
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DATABASE_URL = "sqlite:////data/workouts.db"
+  PORT = "8080"
+
+[[mounts]]
+  source = "data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[http_service.checks]]
+  method = "GET"
+  path = "/api/health"
+  interval = "30s"
+  timeout = "5s"

@@ -1,0 +1,12 @@
+.venv
+.git
+.gitignore
+__pycache__
+*.pyc
+*.db
+.env
+scripts
+*.xlsx
+README.md
+fly.toml
+render.yaml

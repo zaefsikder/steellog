@@ -1,0 +1,31 @@
+# Render Blueprint — deploys the API as a Docker web service on the free tier.
+#
+# The database is an EXTERNAL free-forever Postgres (Neon or Supabase), not
+# Render's own Postgres (which only stays free for 90 days). Render's free web
+# service has an ephemeral disk, so SQLite is not an option here — the external
+# Postgres is what makes your logs persist and sync across devices.
+#
+# Setup:
+#   1. Create a free Postgres at neon.tech (or supabase.com) and copy its
+#      connection string (postgres://...).
+#   2. Push this repo to GitHub.
+#   3. Render dashboard -> New + -> Blueprint -> pick this repo.
+#   4. When prompted, set the env vars below:
+#        DATABASE_URL  = <the Neon/Supabase connection string, pasted as-is>
+#        CORS_ORIGINS  = <your frontend origin, only if hosted separately>
+#
+# Koyeb works the same way: create a Docker service from this repo and set the
+# same two env vars in its dashboard (no blueprint file needed).
+
+services:
+  - type: web
+    name: workout-schedule
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # paste your Neon/Supabase URL in the dashboard
+      - key: CORS_ORIGINS
+        sync: false   # set to your frontend origin, or leave unset for "*"

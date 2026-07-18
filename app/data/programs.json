@@ -1,0 +1,506 @@
+{
+  "programs": [
+    {
+      "id": "hypertrophy",
+      "name": "Hypertrophy",
+      "subtitle": "Upper / Lower / Push / Pull",
+      "days": [
+        {
+          "id": "hypertrophy-upper",
+          "label": "Upper",
+          "title": "Upper Day",
+          "exercises": [
+            {
+              "id": "hypertrophy-upper-inclined-bench-press",
+              "name": "Inclined Bench Press",
+              "category": "",
+              "sets": "3",
+              "reps": "6-8",
+              "weight": "155",
+              "notes": "45 deg incline. Narrow grip"
+            },
+            {
+              "id": "hypertrophy-upper-deficit-pendlay-row",
+              "name": "Deficit Pendlay Row",
+              "category": "",
+              "sets": "2",
+              "reps": "6-8",
+              "weight": "135",
+              "notes": "Torso parallel to the floor"
+            },
+            {
+              "id": "hypertrophy-upper-pullups",
+              "name": "Pullups",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "",
+              "notes": "Chest to the bar. Pull with your back. Try different grips: pronated, neutral, inbetween the two"
+            },
+            {
+              "id": "hypertrophy-upper-peck-deck-standing-cable-fly",
+              "name": "Peck Deck/ Standing Cable Fly",
+              "category": "",
+              "sets": "2",
+              "reps": "10-12",
+              "weight": "145/35",
+              "notes": "Alternate if one isn't available. Angle cables slightly below chest height. Don't let elbows drop"
+            },
+            {
+              "id": "hypertrophy-upper-cross-body-cable-y-extension-up-down",
+              "name": "Cross Body Cable Y Extension (Up-Down)",
+              "category": "",
+              "sets": "2",
+              "reps": "8-10",
+              "weight": "20",
+              "notes": "Do reverse fly if on peck deck already"
+            },
+            {
+              "id": "hypertrophy-upper-cable-overhead-tricep-extension",
+              "name": "Cable Overhead Tricep Extension",
+              "category": "",
+              "sets": "2",
+              "reps": "8-10",
+              "weight": "75",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-upper-bayesian-curl",
+              "name": "Bayesian Curl",
+              "category": "",
+              "sets": "2",
+              "reps": "8-10",
+              "weight": "25",
+              "notes": ""
+            }
+          ]
+        },
+        {
+          "id": "hypertrophy-lower",
+          "label": "Lower",
+          "title": "Lower Day",
+          "exercises": [
+            {
+              "id": "hypertrophy-lower-hack-squats-smith-machine-squats",
+              "name": "Hack Squats/ Smith Machine Squats",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "355/245",
+              "notes": "Deeper feet placement"
+            },
+            {
+              "id": "hypertrophy-lower-romanian-deadlift",
+              "name": "Romanian Deadlift",
+              "category": "",
+              "sets": "3",
+              "reps": "6-8",
+              "weight": "225",
+              "notes": "Push hips straight back"
+            },
+            {
+              "id": "hypertrophy-lower-lying-leg-curls",
+              "name": "Lying Leg Curls",
+              "category": "",
+              "sets": "2",
+              "reps": "6-8",
+              "weight": "120",
+              "notes": "Better for sartorius muscle. Drive your hips into the pad."
+            },
+            {
+              "id": "hypertrophy-lower-seated-leg-curls",
+              "name": "Seated Leg Curls",
+              "category": "",
+              "sets": "",
+              "reps": "",
+              "weight": "100",
+              "notes": "Better for hamstrings. Alternate b/w lying leg curls"
+            },
+            {
+              "id": "hypertrophy-lower-leg-extensions",
+              "name": "Leg Extensions",
+              "category": "",
+              "sets": "2",
+              "reps": "8-10",
+              "weight": "155",
+              "notes": "Set the seat back. Slow ecentric"
+            },
+            {
+              "id": "hypertrophy-lower-calf-extension",
+              "name": "Calf Extension",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "360",
+              "notes": "Deep stretch"
+            },
+            {
+              "id": "hypertrophy-lower-hip-abduction",
+              "name": "Hip Abduction",
+              "category": "",
+              "sets": "2",
+              "reps": "8-10",
+              "weight": "",
+              "notes": ""
+            }
+          ]
+        },
+        {
+          "id": "hypertrophy-push",
+          "label": "Push",
+          "title": "Push Day",
+          "exercises": [
+            {
+              "id": "hypertrophy-push-supine-press-bench-press",
+              "name": "Supine Press/ Bench Press",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "200/145",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-push-shoulder-press",
+              "name": "Shoulder Press",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "162/105",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-push-dips",
+              "name": "Dips",
+              "category": "",
+              "sets": "3",
+              "reps": "15",
+              "weight": "",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-push-triceps-pulldown",
+              "name": "Triceps Pulldown",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "50",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-push-high-cable-lat-raise",
+              "name": "High Cable Lat Raise",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "15",
+              "notes": "Sweep the weight out not up"
+            },
+            {
+              "id": "hypertrophy-push-diamond-pushups",
+              "name": "Diamond Pushups",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "",
+              "notes": ""
+            }
+          ]
+        },
+        {
+          "id": "hypertrophy-pull",
+          "label": "Pull",
+          "title": "Pull Day",
+          "exercises": [
+            {
+              "id": "hypertrophy-pull-lat-pulldown",
+              "name": "Lat Pulldown",
+              "category": "",
+              "sets": "4",
+              "reps": "8-10",
+              "weight": "145",
+              "notes": "Last set closed grip"
+            },
+            {
+              "id": "hypertrophy-pull-cable-row",
+              "name": "Cable Row",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "150",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-pull-preacher-curl",
+              "name": "Preacher Curl",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "72.5/30",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-pull-hammer-curl",
+              "name": "Hammer Curl",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "25",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-pull-pronanted-barbell-curl",
+              "name": "Pronanted Barbell Curl",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "40",
+              "notes": ""
+            },
+            {
+              "id": "hypertrophy-pull-cable-y-pull",
+              "name": "Cable Y Pull",
+              "category": "",
+              "sets": "3",
+              "reps": "8-10",
+              "weight": "10",
+              "notes": ""
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hybrid",
+      "name": "Hybrid Mobility + Hypertrophy",
+      "subtitle": "3–4 Days / Week - 45–60 Min",
+      "days": [
+        {
+          "id": "hybrid-day-a",
+          "label": "Day A",
+          "title": "Lower Body — Mobility + Squat Pattern + Hinge",
+          "exercises": [
+            {
+              "id": "hybrid-day-a-platz-stretch",
+              "name": "Platz Stretch",
+              "category": "Mobility",
+              "sets": "3",
+              "reps": "45–60s hold",
+              "weight": "",
+              "notes": "Deep squat hold, elbows push knees out, breathe into stretch"
+            },
+            {
+              "id": "hybrid-day-a-zercher-hack-squat",
+              "name": "Zercher / Hack Squat",
+              "category": "Strength",
+              "sets": "4",
+              "reps": "5–8",
+              "weight": "",
+              "notes": "Alternate Zercher & Hack each session; Zercher: elbows locked, upright torso"
+            },
+            {
+              "id": "hybrid-day-a-bulgarian-split-squat",
+              "name": "Bulgarian Split Squat",
+              "category": "Hypertrophy",
+              "sets": "3",
+              "reps": "8–10 / leg",
+              "weight": "",
+              "notes": "Rear foot on bench, vertical front shin, knee tracks toe"
+            },
+            {
+              "id": "hybrid-day-a-rdl",
+              "name": "RDL",
+              "category": "Strength",
+              "sets": "3–4",
+              "reps": "8–10",
+              "weight": "",
+              "notes": "Hip hinge — not a squat; bar drags down leg, neutral spine throughout"
+            },
+            {
+              "id": "hybrid-day-a-horse-stance-good-morning",
+              "name": "Horse Stance Good Morning",
+              "category": "Mobility",
+              "sets": "3",
+              "reps": "10",
+              "weight": "",
+              "notes": "Wide stance, hinge at hip, long spine, feel hamstrings load"
+            },
+            {
+              "id": "hybrid-day-a-calf-extensions",
+              "name": "Calf Extensions",
+              "category": "Mobility",
+              "sets": "3",
+              "reps": "15–20",
+              "weight": "",
+              "notes": "Full ROM: pause at bottom stretch and top contraction; no bouncing"
+            }
+          ]
+        },
+        {
+          "id": "hybrid-day-b",
+          "label": "Day B",
+          "title": "Push — Chest + Shoulders + Triceps",
+          "exercises": [
+            {
+              "id": "hybrid-day-b-smith-machine-incline-press",
+              "name": "Smith Machine Incline Press",
+              "category": "Hypertrophy",
+              "sets": "4",
+              "reps": "8–12",
+              "weight": "",
+              "notes": "30° incline, bar to upper chest, 2–3s descent, full lockout"
+            },
+            {
+              "id": "hybrid-day-b-overhead-press",
+              "name": "Overhead Press",
+              "category": "Strength",
+              "sets": "3–4",
+              "reps": "6–10",
+              "weight": "",
+              "notes": "Strict press; brace core, bar starts at clavicle, full lockout overhead"
+            },
+            {
+              "id": "hybrid-day-b-lateral-raise",
+              "name": "Lateral Raise",
+              "category": "Hypertrophy",
+              "sets": "3",
+              "reps": "15–20",
+              "weight": "",
+              "notes": "Lead with elbow, slight forward lean, thumb slightly down; no swing"
+            },
+            {
+              "id": "hybrid-day-b-dips",
+              "name": "Dips",
+              "category": "Strength",
+              "sets": "3",
+              "reps": "8–12",
+              "weight": "",
+              "notes": "Slight forward lean for chest; add weight when 12+ reps clean"
+            },
+            {
+              "id": "hybrid-day-b-katana-extension",
+              "name": "Katana Extension",
+              "category": "Hypertrophy",
+              "sets": "3",
+              "reps": "12–15",
+              "weight": "",
+              "notes": "Cable overhead; elbows fixed, slow eccentric, full stretch at top"
+            },
+            {
+              "id": "hybrid-day-b-tricep-pulldown",
+              "name": "Tricep Pulldown",
+              "category": "Hypertrophy",
+              "sets": "3",
+              "reps": "12–15",
+              "weight": "",
+              "notes": "Elbows pinned to sides, full lockout each rep; try rope for extra ROM"
+            }
+          ]
+        },
+        {
+          "id": "hybrid-day-c",
+          "label": "Day C",
+          "title": "Pull + Biceps + Core — Back Width + Arm Flexors + Core",
+          "exercises": [
+            {
+              "id": "hybrid-day-c-pull-ups",
+              "name": "Pull-Ups",
+              "category": "Strength",
+              "sets": "4",
+              "reps": "max (weighted when 12+)",
+              "weight": "",
+              "notes": "Dead hang start, full extension at bottom; add load with belt"
+            },
+            {
+              "id": "hybrid-day-c-front-lever",
+              "name": "Front Lever",
+              "category": "Skill/Core",
+              "sets": "3",
+              "reps": "max hold",
+              "weight": "",
+              "notes": "Tuck → adv. tuck → straddle; depress scaps, hollow body, arms straight"
+            },
+            {
+              "id": "hybrid-day-c-cable-row",
+              "name": "Cable Row",
+              "category": "Hypertrophy",
+              "sets": "3–4",
+              "reps": "10–12",
+              "weight": "",
+              "notes": "Slight lean at start, pull to navel, retract scaps at peak"
+            },
+            {
+              "id": "hybrid-day-c-bayesian-curl",
+              "name": "Bayesian Curl",
+              "category": "Hypertrophy",
+              "sets": "3",
+              "reps": "12–15",
+              "weight": "",
+              "notes": "Cable behind body, step forward to load stretch, full extension at bottom"
+            },
+            {
+              "id": "hybrid-day-c-preacher-curl",
+              "name": "Preacher Curl",
+              "category": "Hypertrophy",
+              "sets": "3",
+              "reps": "10–12",
+              "weight": "",
+              "notes": "Upper arm fully on pad; slow 3s descent; don't lift off pad at top"
+            },
+            {
+              "id": "hybrid-day-c-hanging-leg-raise",
+              "name": "Hanging Leg Raise",
+              "category": "Core",
+              "sets": "3",
+              "reps": "12–15",
+              "weight": "",
+              "notes": "Posterior pelvic tilt, no swing, controlled descent; progress to toes-to-bar"
+            }
+          ]
+        },
+        {
+          "id": "hybrid-day-d",
+          "label": "Day D",
+          "title": "Posterior Chain + Core — Hip Hinge Power + Hamstrings + Core",
+          "exercises": [
+            {
+              "id": "hybrid-day-d-kb-swings",
+              "name": "KB Swings",
+              "category": "Strength",
+              "sets": "4",
+              "reps": "15–20",
+              "weight": "",
+              "notes": "Hip snap — not a squat; hike bell back, neutral spine, glute squeeze at top"
+            },
+            {
+              "id": "hybrid-day-d-seated-lying-leg-curl",
+              "name": "Seated / Lying Leg Curl",
+              "category": "Hypertrophy",
+              "sets": "3",
+              "reps": "12–15",
+              "weight": "",
+              "notes": "Full ROM, squeeze hard at peak contraction, 2–3s lowering phase"
+            },
+            {
+              "id": "hybrid-day-d-roman-chair-hyperext",
+              "name": "Roman Chair Hyperext.",
+              "category": "Core",
+              "sets": "3",
+              "reps": "12–15",
+              "weight": "",
+              "notes": "Hinge at hip, neutral spine at top; add plate to chest when 20+ easy"
+            },
+            {
+              "id": "hybrid-day-d-v-ups",
+              "name": "V-Ups",
+              "category": "Core",
+              "sets": "3",
+              "reps": "15–20",
+              "weight": "",
+              "notes": "Full extension on descent, meet hands to feet; progress to weighted"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
