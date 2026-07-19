@@ -16,3 +16,8 @@ wheels/
 
 # macOS
 .DS_Store
+
+# Neon agent tooling (installed locally by `neon init`)
+.claude/skills/
+.agents/
+skills-lock.json
