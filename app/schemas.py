@@ -64,14 +64,12 @@ class SetLogOut(BaseModel):
     reps: int
     notes: str
     performed_at: datetime
-    est_1rm: float | None = None
 
 
 class ExerciseStats(BaseModel):
     exercise_id: str
     total_sets: int
     best_weight: float | None = None
-    best_est_1rm: float | None = None
     last_performed_at: datetime | None = None
     last_weight: float | None = None
     last_reps: int | None = None

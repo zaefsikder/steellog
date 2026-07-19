@@ -43,19 +43,6 @@ app.add_middleware(
 )
 
 
-def epley_1rm(weight: float | None, reps: int) -> float | None:
-    """Estimated one-rep max via the Epley formula: w * (1 + reps/30)."""
-    if not weight or weight <= 0 or reps <= 0:
-        return None
-    return round(weight * (1 + reps / 30), 1)
-
-
-def _to_out(log: SetLog) -> SetLogOut:
-    out = SetLogOut.model_validate(log)
-    out.est_1rm = epley_1rm(log.weight, log.reps)
-    return out
-
-
 # --- Program catalogue -----------------------------------------------------
 @app.get("/api/programs", response_model=list[ProgramSummary])
 def list_programs() -> list[ProgramSummary]:
@@ -90,7 +77,7 @@ def create_log(payload: SetLogCreate, db: Session = Depends(get_db)) -> SetLogOu
     db.add(log)
     db.commit()
     db.refresh(log)
-    return _to_out(log)
+    return SetLogOut.model_validate(log)
 
 
 @app.get("/api/logs", response_model=list[SetLogOut])
@@ -106,7 +93,7 @@ def list_logs(
     if program_id:
         stmt = stmt.where(SetLog.program_id == program_id)
     stmt = stmt.order_by(SetLog.performed_at.desc()).limit(limit)
-    return [_to_out(log) for log in db.scalars(stmt)]
+    return [SetLogOut.model_validate(log) for log in db.scalars(stmt)]
 
 
 @app.delete("/api/logs/{log_id}", status_code=204)
@@ -133,15 +120,11 @@ def exercise_stats(
         return ExerciseStats(exercise_id=exercise_id, total_sets=0)
 
     weights = [log.weight for log in logs if log.weight is not None]
-    est_1rms = [
-        v for log in logs if (v := epley_1rm(log.weight, log.reps)) is not None
-    ]
     latest = logs[0]
     return ExerciseStats(
         exercise_id=exercise_id,
         total_sets=len(logs),
         best_weight=max(weights) if weights else None,
-        best_est_1rm=max(est_1rms) if est_1rms else None,
         last_performed_at=latest.performed_at,
         last_weight=latest.weight,
         last_reps=latest.reps,

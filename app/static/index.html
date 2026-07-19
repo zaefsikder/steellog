@@ -26,7 +26,10 @@
     <span class="brand__name">STEEL<span class="brand__thin">LOG</span></span>
   </div>
 
-  <div id="topProgram" class="topbar__prog" aria-live="polite"></div>
+  <div id="viewToggle" class="viewtoggle" role="tablist" aria-label="Choose view">
+    <button class="viewtoggle__btn is-active" type="button" role="tab" data-view="train" aria-selected="true" aria-controls="trainView">Train</button>
+    <button class="viewtoggle__btn" type="button" role="tab" data-view="progress" aria-selected="false" aria-controls="progressView">Progress</button>
+  </div>
 </header>
 
 <!-- Server-waking / connection banner -->
@@ -58,34 +61,40 @@
 
   <!-- ============================ MAIN ============================ -->
   <main id="main" class="main" tabindex="-1">
-    <!-- Program header -->
-    <section id="programHeader" class="phead" hidden>
-      <p class="phead__eyebrow" id="pheadEyebrow">Program</p>
-      <h1 class="phead__name" id="pheadName"></h1>
-      <p class="phead__sub" id="pheadSub"></p>
-      <div class="phead__stats" id="pheadStats"></div>
-    </section>
+    <!-- ------------------------- TRAIN VIEW ------------------------- -->
+    <div id="trainView" role="tabpanel" aria-label="Train">
+      <!-- Program header -->
+      <section id="programHeader" class="phead" hidden>
+        <p class="phead__eyebrow" id="pheadEyebrow">Program</p>
+        <h1 class="phead__name" id="pheadName"></h1>
+        <p class="phead__sub" id="pheadSub"></p>
+        <div class="phead__stats" id="pheadStats"></div>
+      </section>
 
-    <!-- Day segmented control -->
-    <nav id="dayTabs" class="daytabs" aria-label="Choose a training day" hidden></nav>
+      <!-- Day segmented control -->
+      <nav id="dayTabs" class="daytabs" aria-label="Choose a training day" hidden></nav>
 
-    <!-- Day title -->
-    <div id="dayTitle" class="daytitle" hidden></div>
+      <!-- Day title -->
+      <div id="dayTitle" class="daytitle" hidden></div>
 
-    <!-- Exercise list -->
-    <section id="exerciseList" class="exlist" aria-live="polite">
-      <!-- boot / loading state -->
-      <div id="bootState" class="statepanel">
-        <div class="statepanel__dot"></div>
-        <p class="statepanel__msg">Loading your training ledger…</p>
+      <!-- Exercise list -->
+      <section id="exerciseList" class="exlist" aria-live="polite">
+        <!-- boot / loading state -->
+        <div id="bootState" class="statepanel">
+          <div class="statepanel__dot"></div>
+          <p class="statepanel__msg">Loading your training ledger…</p>
+        </div>
+      </section>
+
+      <div class="mainfoot" aria-hidden="true">
+        <span class="mainfoot__stripe"></span>
+        <span class="mainfoot__word">END OF SESSION</span>
+        <span class="mainfoot__stripe"></span>
       </div>
-    </section>
-
-    <div class="mainfoot" aria-hidden="true">
-      <span class="mainfoot__stripe"></span>
-      <span class="mainfoot__word">END OF SESSION</span>
-      <span class="mainfoot__stripe"></span>
     </div>
+
+    <!-- ------------------------ PROGRESS VIEW ----------------------- -->
+    <section id="progressView" class="progress" role="tabpanel" aria-label="Progress" hidden></section>
   </main>
 </div>
 

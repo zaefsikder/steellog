@@ -36,15 +36,6 @@ function el(tag, attrs = {}, ...kids) {
   return node;
 }
 
-const escapeHtml = (s) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  }[c]));
-
 /* ------------------------------------------------------------------ */
 /* API layer — with cold-start "waking up" handling + retry            */
 /* ------------------------------------------------------------------ */
@@ -159,6 +150,7 @@ const state = {
   program: null, // full program object
   programId: null,
   dayId: null,
+  view: "train", // "train" | "progress"
   logsByExercise: new Map(), // exercise_id -> [logs]
 };
 
@@ -277,9 +269,6 @@ function renderProgramHeader() {
     );
   }
   head.hidden = false;
-
-  // top bar indicator
-  $("#topProgram").innerHTML = `<b>${escapeHtml(p.name)}</b>`;
 }
 
 function renderDayTabs() {
@@ -539,8 +528,8 @@ async function submitLog(ex, { weight, reps, note, btn, form }) {
     note.value = "";
     reps.focus();
 
-    const oneRm = log.est_1rm ? ` · est 1RM ${fmtNum(log.est_1rm)}` : "";
-    toast(`Set logged${oneRm}`, { type: "ok" });
+    const load = log.weight == null ? `BW × ${log.reps}` : `${fmtNum(log.weight)} lb × ${log.reps}`;
+    toast(`Set logged · ${load}`, { type: "ok" });
   } catch (err) {
     toast(err.message || "Could not log the set.", { type: "err" });
   } finally {
@@ -575,10 +564,11 @@ function updateLastLine(card, logs) {
   }
   const l = logs[0];
   const load = l.weight == null ? `BW × ${l.reps}` : `${fmtNum(l.weight)} lb × ${l.reps}`;
-  const rm = l.est_1rm ? ` · <span class="pr">1RM ${fmtNum(l.est_1rm)}</span>` : "";
-  valEl.innerHTML = `<b>${load}</b> · ${relTime(l.performed_at)}${rm}`;
+  valEl.innerHTML = `<b>${load}</b> · ${relTime(l.performed_at)}`;
 }
 
+// Returns a promise that resolves once the panel's async content (if any)
+// has rendered — callers that need to act on the settled layout can await it.
 function toggleMemory(card) {
   const mem = card.querySelector(".memory");
   const toggle = card.querySelector(".card__toggle");
@@ -586,8 +576,9 @@ function toggleMemory(card) {
   toggle.setAttribute("aria-expanded", open ? "true" : "false");
   if (open && !mem.dataset.loaded) {
     const exId = card.dataset.ex;
-    loadMemory(card, exId, state.logsByExercise.get(exId));
+    return loadMemory(card, exId, state.logsByExercise.get(exId));
   }
+  return Promise.resolve();
 }
 
 async function loadMemory(card, exId, cachedLogs) {
@@ -595,7 +586,7 @@ async function loadMemory(card, exId, cachedLogs) {
   const pad = mem.querySelector("[data-mempad]");
   mem.dataset.loaded = "1";
 
-  // stats fetch (best/1RM over all logs)
+  // stats fetch (totals + best/last over all logs)
   let stats = null;
   try {
     stats = await apiJSON(`/api/exercises/${encodeURIComponent(exId)}/stats`);
@@ -613,14 +604,28 @@ function renderMemory(pad, exId, stats, logs) {
   // stat boxes
   const total = stats ? stats.total_sets : logs.length;
   const bestW = stats ? stats.best_weight : null;
-  const best1 = stats ? stats.best_est_1rm : null;
+  const lastLog = logs[0] || null;
+
+  let lastVal = "—";
+  if (stats && stats.last_reps != null) {
+    lastVal =
+      stats.last_weight == null
+        ? `BW×${stats.last_reps}`
+        : `${fmtNum(stats.last_weight)}×${stats.last_reps}`;
+  } else if (lastLog) {
+    lastVal =
+      lastLog.weight == null
+        ? `BW×${lastLog.reps}`
+        : `${fmtNum(lastLog.weight)}×${lastLog.reps}`;
+  }
+
   pad.append(
     el(
       "div",
       { class: "stats" },
       statbox(String(total), "Total sets"),
-      statbox(bestW != null ? `${fmtNum(bestW)}` : "—", "Best load", false),
-      statbox(best1 != null ? `${fmtNum(best1)}` : "—", "Best 1RM", true)
+      statbox(bestW != null ? `${fmtNum(bestW)}` : "—", "Best load", true),
+      statbox(lastVal, "Last set", false)
     )
   );
 
@@ -659,8 +664,6 @@ function buildHistRow(log, exId) {
   const del = el("button", { class: "histrow__del", type: "button", "aria-label": "Delete this set", title: "Delete set" }, "✕");
   del.addEventListener("click", () => deleteLog(log, exId, del.closest(".histrow")));
 
-  const rm = log.est_1rm ? el("span", { class: "histrow__1rm", html: `<b>${fmtNum(log.est_1rm)}</b> 1rm` }) : el("span", { class: "histrow__1rm" }, "—");
-
   const loadCell = el("span", { class: "histrow__load", html: loadDisplay(log) });
   if (log.notes) loadCell.append(" ", el("span", { class: "histrow__note", title: log.notes }, "✎"));
 
@@ -668,7 +671,6 @@ function buildHistRow(log, exId) {
     "li",
     { class: "histrow", "data-log": log.id },
     loadCell,
-    rm,
     el("span", { class: "histrow__when" }, relTime(log.performed_at)),
     del
   );
@@ -811,6 +813,7 @@ async function selectProgram(programId, preferredDayId) {
     renderDayTabs();
     renderDay();
     saveSelection();
+    if (state.view === "progress") renderProgress();
     $("#main").focus({ preventScroll: true });
   } catch (err) {
     showError("Couldn't load this program.", () => selectProgram(programId, preferredDayId));
@@ -823,6 +826,299 @@ function selectDay(dayId) {
   renderDayTabs();
   renderDay();
   saveSelection();
+}
+
+/* ------------------------------------------------------------------ */
+/* View toggle: TRAIN <-> PROGRESS                                     */
+/* ------------------------------------------------------------------ */
+function setView(view) {
+  if (view !== "train" && view !== "progress") return;
+  state.view = view;
+  $("#trainView").hidden = view !== "train";
+  $("#progressView").hidden = view !== "progress";
+  $$("#viewToggle .viewtoggle__btn").forEach((b) => {
+    const active = b.dataset.view === view;
+    b.classList.toggle("is-active", active);
+    b.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  if (view === "progress") renderProgress();
+}
+
+$$("#viewToggle .viewtoggle__btn").forEach((b) =>
+  b.addEventListener("click", () => setView(b.dataset.view))
+);
+
+/* ------------------------------------------------------------------ */
+/* Progress view — best top-set + progressive-overload trend           */
+/* ------------------------------------------------------------------ */
+
+// Local calendar-day key (so sessions are grouped by the user's day).
+function dayKey(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+// The "top set" of a day: heaviest weight (tie -> more reps); for a
+// bodyweight exercise, the set with the most reps.
+function topSetOfDay(sets, isBodyweight) {
+  return sets.reduce((best, s) => {
+    if (!best) return s;
+    if (isBodyweight) return s.reps > best.reps ? s : best;
+    const w = s.weight ?? -Infinity;
+    const bw = best.weight ?? -Infinity;
+    if (w > bw) return s;
+    if (w === bw && s.reps > best.reps) return s;
+    return best;
+  }, null);
+}
+
+/**
+ * Reduce one exercise's logs (newest first) to a headline number and a
+ * progressive-overload trend, comparing the most recent training day's
+ * top set against the previous training day's.
+ */
+function analyzeExercise(logs) {
+  if (!logs || !logs.length) return { state: "none" };
+
+  const isBW = logs.every((l) => l.weight == null);
+
+  // group by calendar day, preserving newest-first order
+  const byDay = new Map();
+  for (const l of logs) {
+    const k = dayKey(l.performed_at);
+    if (!byDay.has(k)) byDay.set(k, []);
+    byDay.get(k).push(l);
+  }
+  const dayKeys = [...byDay.keys()]; // newest first (logs are newest first)
+  const recent = topSetOfDay(byDay.get(dayKeys[0]), isBW);
+  const prev = dayKeys.length > 1 ? topSetOfDay(byDay.get(dayKeys[1]), isBW) : null;
+
+  // headline: best ever top-set weight (or best reps for bodyweight)
+  let best;
+  if (isBW) {
+    best = { load: null, reps: Math.max(...logs.map((l) => l.reps)) };
+  } else {
+    best = { load: Math.max(...logs.filter((l) => l.weight != null).map((l) => l.weight)), reps: null };
+  }
+
+  // trend: only meaningful with two distinct training days
+  let trend = "new";
+  if (prev) {
+    if (isBW) {
+      trend = recent.reps > prev.reps ? "up" : recent.reps < prev.reps ? "down" : "flat";
+    } else {
+      const rw = recent.weight ?? -Infinity;
+      const pw = prev.weight ?? -Infinity;
+      if (rw > pw) trend = "up";
+      else if (rw < pw) trend = "down";
+      else trend = recent.reps > prev.reps ? "up" : recent.reps < prev.reps ? "down" : "flat";
+    }
+  }
+
+  return { state: "data", isBW, best, trend, sessions: dayKeys.length };
+}
+
+const TREND = {
+  up: { arrow: "↑", label: "Progressing up", cls: "trend--up" },
+  flat: { arrow: "→", label: "Holding steady", cls: "trend--flat" },
+  down: { arrow: "↓", label: "Stalling — down from last session", cls: "trend--down" },
+  new: { arrow: "•", label: "New — one session logged", cls: "trend--new" },
+  none: { arrow: "", label: "No data yet", cls: "trend--none" },
+};
+
+let progressToken = 0;
+
+async function renderProgress() {
+  const wrap = $("#progressView");
+  const program = state.program;
+  if (!program) return;
+
+  const token = ++progressToken;
+  wrap.innerHTML = "";
+  wrap.append(
+    el(
+      "div",
+      { class: "statepanel" },
+      el("div", { class: "statepanel__dot" }),
+      el("p", { class: "statepanel__msg" }, "Reading the ledger…")
+    )
+  );
+
+  let logs;
+  try {
+    logs = await apiJSON(`/api/logs?program_id=${encodeURIComponent(program.id)}&limit=1000`);
+  } catch (err) {
+    if (token !== progressToken) return;
+    wrap.innerHTML = "";
+    const panel = el(
+      "div",
+      { class: "statepanel statepanel--error" },
+      el("div", { class: "statepanel__dot" }, "!"),
+      el("p", { class: "statepanel__msg" }, "Couldn't load progress."),
+      el("button", { class: "statepanel__retry", type: "button", onClick: renderProgress }, "Retry")
+    );
+    wrap.append(panel);
+    return;
+  }
+  if (token !== progressToken) return; // superseded (program/view changed)
+
+  // group logs by exercise (newest first, preserved)
+  const byEx = new Map();
+  for (const l of logs) {
+    if (!byEx.has(l.exercise_id)) byEx.set(l.exercise_id, []);
+    byEx.get(l.exercise_id).push(l);
+  }
+
+  wrap.innerHTML = "";
+
+  // header + legend
+  wrap.append(
+    el(
+      "header",
+      { class: "progress__head" },
+      el("p", { class: "phead__eyebrow" }, "Progress"),
+      el("h1", { class: "progress__name" }, program.name),
+      el(
+        "div",
+        { class: "progress__legend" },
+        legendItem("up"),
+        legendItem("flat"),
+        legendItem("down")
+      )
+    )
+  );
+
+  const loggedCount = byEx.size;
+  const groups = el("div", { class: "pgroups" });
+  program.days.forEach((day, di) => {
+    const group = el("section", { class: "pgroup" });
+    group.style.animationDelay = `${Math.min(di * 60, 240)}ms`;
+    group.append(
+      el(
+        "header",
+        { class: "pgroup__head" },
+        el("span", { class: "pgroup__label" }, day.label),
+        el("span", { class: "pgroup__title" }, day.title)
+      )
+    );
+    const ul = el("ul", { class: "prows" });
+    day.exercises.forEach((ex) => ul.append(buildProgressRow(ex, day, byEx.get(ex.id))));
+    group.append(ul);
+    groups.append(group);
+  });
+  wrap.append(groups);
+
+  if (loggedCount === 0) {
+    wrap.append(
+      el(
+        "p",
+        { class: "progress__empty" },
+        "No sets logged for this program yet. Log a few in ",
+        el("button", { class: "progress__inlinebtn", type: "button", onClick: () => setView("train") }, "Train"),
+        " and your trends will appear here."
+      )
+    );
+  }
+}
+
+function legendItem(kind) {
+  const t = TREND[kind];
+  return el(
+    "span",
+    { class: "legend__item " + t.cls },
+    el("span", { class: "legend__arrow", "aria-hidden": "true" }, t.arrow),
+    el("span", {}, { up: "progressing", flat: "holding", down: "stalling" }[kind])
+  );
+}
+
+function buildProgressRow(ex, day, logs) {
+  const info = analyzeExercise(logs);
+
+  const name = el("span", { class: "prow__name" }, ex.name);
+  if (ex.category) {
+    name.append(" ", el("span", { class: `pill pill--${pillClass(ex.category)}` }, ex.category));
+  }
+
+  // headline number
+  let bestNode;
+  if (info.state === "none") {
+    bestNode = el("span", { class: "prow__best is-empty" }, "—");
+  } else if (info.isBW) {
+    bestNode = el("span", { class: "prow__best" }, el("span", { class: "prow__bw" }, "BW"), el("small", {}, " ×"), String(info.best.reps));
+  } else {
+    bestNode = el("span", { class: "prow__best" }, fmtNum(info.best.load), el("small", {}, " lb"));
+  }
+
+  const trendKind = info.state === "none" ? "none" : info.trend;
+  const t = TREND[trendKind];
+  const trend = el(
+    "span",
+    { class: "prow__trend " + t.cls, role: "img", "aria-label": t.label, title: t.label },
+    el("span", { class: "prow__arrow", "aria-hidden": "true" }, t.arrow || "·")
+  );
+
+  const row = el(
+    "li",
+    {
+      class: "prow" + (info.state === "none" ? " is-cold" : ""),
+      role: "button",
+      tabindex: "0",
+      "aria-label": `${ex.name} — ${info.state === "none" ? "no data" : t.label}. Open history.`,
+      "data-ex": ex.id,
+      "data-day": day.id,
+    },
+    name,
+    bestNode,
+    trend
+  );
+
+  const open = () => openInTrain(ex.id, day.id);
+  row.addEventListener("click", open);
+  row.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      open();
+    }
+  });
+  return row;
+}
+
+// Drill-in: jump to the TRAIN view with the exercise's day selected and
+// its history panel expanded + scrolled into view. selectDay() renders the
+// day's cards synchronously, so the target card exists immediately.
+async function openInTrain(exId, dayId) {
+  setView("train");
+  selectDay(dayId); // no-op if already the active day; cards already exist
+
+  const card = document.querySelector(`.card[data-ex="${cssEsc(exId)}"]`);
+  if (!card) return;
+
+  // Expand the history panel and WAIT for its async stats/history to render.
+  // The panel loads via a /stats fetch and re-renders, changing card heights;
+  // scrolling before that settles is what left the target out of view.
+  const mem = card.querySelector(".memory");
+  if (mem && !mem.classList.contains("is-open")) {
+    await toggleMemory(card);
+  }
+
+  // Scroll to the card's own (stable) top: the panel expands downward, so the
+  // card top doesn't move as content loads. Land it just below the sticky top
+  // bar + day tabs. Reading getBoundingClientRect() flushes pending layout, so
+  // the target is computed against the settled DOM (no rAF dependency).
+  const topbar = document.querySelector(".topbar");
+  const daytabs = $("#dayTabs");
+  const offset =
+    (topbar ? topbar.offsetHeight : 0) +
+    (daytabs && !daytabs.hidden ? daytabs.offsetHeight : 0) +
+    14;
+  const y = card.getBoundingClientRect().top + window.scrollY - offset;
+  // Instant (not smooth): this is a full view swap from the Progress grid, so
+  // there's no scroll continuity to preserve, and it lands deterministically.
+  window.scrollTo({ top: Math.max(0, y), behavior: "auto" });
+
+  card.classList.remove("is-logged");
+  void card.offsetWidth;
+  card.classList.add("is-logged"); // brief highlight to orient the user
 }
 
 /* ------------------------------------------------------------------ */
