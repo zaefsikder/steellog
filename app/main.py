@@ -14,8 +14,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import programs
-from app.config import CORS_ORIGINS
-from app.database import Base, SessionLocal, engine, get_db
+from app.auth import User, current_user
+from app.config import CORS_ORIGINS, OWNER_EMAIL
+from app.database import Base, engine, get_db
 from app.models import Program as ProgramRow
 from app.models import SetLog
 from app.schemas import (
@@ -28,36 +29,42 @@ from app.schemas import (
 )
 
 
-def seed_programs_if_empty() -> None:
-    """On first run, import the two original programs from programs.json.
-
-    They are inserted verbatim (same program/exercise ids) so existing logs
-    still match, and marked origin="seed" so they can be reset but not deleted.
-    """
-    with SessionLocal() as db:
-        if db.scalar(select(func.count()).select_from(ProgramRow)):
-            return
-        for order, doc in enumerate(programs.seed_programs()):
-            db.add(
-                ProgramRow(
-                    id=doc["id"],
-                    name=doc["name"],
-                    subtitle=doc.get("subtitle", ""),
-                    origin="seed",
-                    days=doc["days"],
-                    sort_order=order,
-                )
-            )
-        db.commit()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables on boot. For this small schema this is simpler than
     # wiring up migrations; swap in Alembic later if the schema grows.
     Base.metadata.create_all(bind=engine)
-    seed_programs_if_empty()
     yield
+
+
+def _maybe_seed_owner(user: User, db: Session) -> None:
+    """Seed the two starter programs into the owner account's first visit.
+
+    Only the account whose email matches OWNER_EMAIL gets them, and only if it
+    has no programs yet. Every other account starts empty.
+    """
+    if not OWNER_EMAIL or user.email != OWNER_EMAIL:
+        return
+    has_any = db.scalar(
+        select(func.count())
+        .select_from(ProgramRow)
+        .where(ProgramRow.user_id == user.id)
+    )
+    if has_any:
+        return
+    for order, doc in enumerate(programs.seed_programs()):
+        db.add(
+            ProgramRow(
+                user_id=user.id,
+                id=doc["id"],
+                name=doc["name"],
+                subtitle=doc.get("subtitle", ""),
+                origin="seed",
+                days=doc["days"],
+                sort_order=order,
+            )
+        )
+    db.commit()
 
 
 app = FastAPI(title="Workout Schedule API", version="1.0.0", lifespan=lifespan)
@@ -81,17 +88,27 @@ def _program_detail(row: ProgramRow) -> dict:
     }
 
 
-def _get_program_row(program_id: str, db: Session) -> ProgramRow:
-    row = db.get(ProgramRow, program_id)
+def _get_program_row(user: User, program_id: str, db: Session) -> ProgramRow:
+    row = db.get(ProgramRow, (user.id, program_id))
     if row is None:
         raise HTTPException(status_code=404, detail="Program not found")
     return row
 
 
+@app.get("/api/me")
+def me(user: User = Depends(current_user)) -> dict:
+    return {"id": user.id, "email": user.email}
+
+
 @app.get("/api/programs", response_model=list[ProgramSummary])
-def list_programs(db: Session = Depends(get_db)) -> list[ProgramSummary]:
+def list_programs(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[ProgramSummary]:
+    _maybe_seed_owner(user, db)
     rows = db.scalars(
-        select(ProgramRow).order_by(ProgramRow.sort_order, ProgramRow.created_at)
+        select(ProgramRow)
+        .where(ProgramRow.user_id == user.id)
+        .order_by(ProgramRow.sort_order, ProgramRow.created_at)
     )
     return [
         ProgramSummary(
@@ -107,15 +124,23 @@ def list_programs(db: Session = Depends(get_db)) -> list[ProgramSummary]:
 
 
 @app.get("/api/programs/{program_id}", response_model=Program)
-def get_program(program_id: str, db: Session = Depends(get_db)) -> dict:
-    return _program_detail(_get_program_row(program_id, db))
+def get_program(
+    program_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    return _program_detail(_get_program_row(user, program_id, db))
 
 
 @app.post("/api/programs", response_model=Program, status_code=201)
 def create_program(
-    payload: ProgramInput, db: Session = Depends(get_db)
+    payload: ProgramInput,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> dict:
-    taken = set(db.scalars(select(ProgramRow.id)))
+    taken = set(
+        db.scalars(select(ProgramRow.id).where(ProgramRow.user_id == user.id))
+    )
     program_id = programs.new_program_id(payload.name, taken)
     # Create always mints fresh ids: a new routine (even one duplicated from an
     # existing program) must not reuse another program's exercise ids, or logs
@@ -127,8 +152,16 @@ def create_program(
         day["exercises"] = [{**e, "id": None} for e in day["exercises"]]
         fresh_days.append(day)
     days = programs.assign_ids(program_id, fresh_days)
-    next_order = (db.scalar(select(func.max(ProgramRow.sort_order))) or 0) + 1
+    next_order = (
+        db.scalar(
+            select(func.max(ProgramRow.sort_order)).where(
+                ProgramRow.user_id == user.id
+            )
+        )
+        or 0
+    ) + 1
     row = ProgramRow(
+        user_id=user.id,
         id=program_id,
         name=payload.name,
         subtitle=payload.subtitle,
@@ -144,9 +177,12 @@ def create_program(
 
 @app.put("/api/programs/{program_id}", response_model=Program)
 def update_program(
-    program_id: str, payload: ProgramInput, db: Session = Depends(get_db)
+    program_id: str,
+    payload: ProgramInput,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> dict:
-    row = _get_program_row(program_id, db)
+    row = _get_program_row(user, program_id, db)
     row.name = payload.name
     row.subtitle = payload.subtitle
     row.days = programs.assign_ids(
@@ -158,8 +194,12 @@ def update_program(
 
 
 @app.delete("/api/programs/{program_id}", status_code=204)
-def delete_program(program_id: str, db: Session = Depends(get_db)) -> None:
-    row = _get_program_row(program_id, db)
+def delete_program(
+    program_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    row = _get_program_row(user, program_id, db)
     if row.origin == "seed":
         raise HTTPException(
             status_code=409,
@@ -170,8 +210,12 @@ def delete_program(program_id: str, db: Session = Depends(get_db)) -> None:
 
 
 @app.post("/api/programs/{program_id}/reset", response_model=Program)
-def reset_program(program_id: str, db: Session = Depends(get_db)) -> dict:
-    row = _get_program_row(program_id, db)
+def reset_program(
+    program_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    row = _get_program_row(user, program_id, db)
     original = programs.original_program(program_id)
     if row.origin != "seed" or original is None:
         raise HTTPException(
@@ -187,9 +231,13 @@ def reset_program(program_id: str, db: Session = Depends(get_db)) -> dict:
 
 # --- Set logging -----------------------------------------------------------
 @app.post("/api/logs", response_model=SetLogOut, status_code=201)
-def create_log(payload: SetLogCreate, db: Session = Depends(get_db)) -> SetLogOut:
+def create_log(
+    payload: SetLogCreate,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> SetLogOut:
     data = payload.model_dump(exclude_none=True)
-    log = SetLog(**data)
+    log = SetLog(**data, user_id=user.id)
     db.add(log)
     db.commit()
     db.refresh(log)
@@ -201,9 +249,10 @@ def list_logs(
     exercise_id: str | None = Query(default=None),
     program_id: str | None = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
+    user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> list[SetLogOut]:
-    stmt = select(SetLog)
+    stmt = select(SetLog).where(SetLog.user_id == user.id)
     if exercise_id:
         stmt = stmt.where(SetLog.exercise_id == exercise_id)
     if program_id:
@@ -213,9 +262,13 @@ def list_logs(
 
 
 @app.delete("/api/logs/{log_id}", status_code=204)
-def delete_log(log_id: int, db: Session = Depends(get_db)) -> None:
+def delete_log(
+    log_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
     log = db.get(SetLog, log_id)
-    if log is None:
+    if log is None or log.user_id != user.id:
         raise HTTPException(status_code=404, detail="Log not found")
     db.delete(log)
     db.commit()
@@ -223,12 +276,14 @@ def delete_log(log_id: int, db: Session = Depends(get_db)) -> None:
 
 @app.get("/api/exercises/{exercise_id}/stats", response_model=ExerciseStats)
 def exercise_stats(
-    exercise_id: str, db: Session = Depends(get_db)
+    exercise_id: str,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
 ) -> ExerciseStats:
     logs = list(
         db.scalars(
             select(SetLog)
-            .where(SetLog.exercise_id == exercise_id)
+            .where(SetLog.user_id == user.id, SetLog.exercise_id == exercise_id)
             .order_by(SetLog.performed_at.desc())
         )
     )

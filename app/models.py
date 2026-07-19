@@ -27,6 +27,9 @@ class Program(Base):
 
     __tablename__ = "programs"
 
+    # Composite key: a readable id (e.g. "hypertrophy") is unique *per user*, so
+    # every account can have its own "hypertrophy" without colliding.
+    user_id: Mapped[str] = mapped_column(String(128), primary_key=True, index=True)
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
     subtitle: Mapped[str] = mapped_column(String(300), default="")
@@ -51,8 +54,11 @@ class SetLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
+    # Owner of this set (the JWT `sub`). Every query is scoped to it.
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+
     # Which program / day / exercise this set belongs to. These match the ids
-    # in app/data/programs.json so the frontend can join logs back to exercises.
+    # in the owner's program document so the frontend can join logs to exercises.
     program_id: Mapped[str] = mapped_column(String(64), index=True)
     day_id: Mapped[str] = mapped_column(String(96), index=True)
     exercise_id: Mapped[str] = mapped_column(String(160), index=True)

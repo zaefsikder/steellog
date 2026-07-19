@@ -29,3 +29,13 @@ services:
         sync: false   # paste your Neon/Supabase URL in the dashboard
       - key: CORS_ORIGINS
         sync: false   # set to your frontend origin, or leave unset for "*"
+      # --- Neon Auth (multi-user login) ---
+      # From the Neon Console -> Auth tab, once Neon Auth is enabled.
+      - key: NEON_AUTH_JWKS_URL
+        sync: false   # setting this turns on real JWT auth (disables dev mode)
+      - key: NEON_AUTH_ISSUER
+        sync: false   # the token issuer to validate (from Neon Auth)
+      - key: NEON_AUTH_AUDIENCE
+        sync: false   # optional; set only if your tokens carry an `aud`
+      - key: OWNER_EMAIL
+        sync: false   # your email — the one account that gets the 2 starter programs

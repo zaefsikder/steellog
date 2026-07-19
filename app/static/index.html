@@ -62,6 +62,13 @@
       </div>
     </nav>
     <div class="drawer__foot">
+      <div id="userStrip" class="userstrip" hidden>
+        <div class="userstrip__who">
+          <span class="userstrip__avatar" aria-hidden="true"></span>
+          <span id="userEmail" class="userstrip__email"></span>
+        </div>
+        <button id="signOutBtn" class="userstrip__out" type="button">Sign out</button>
+      </div>
       <span class="drawer__tag">Ledger · v1.0</span>
     </div>
   </aside>
@@ -121,4 +128,4 @@
 <div id="toaster" class="toaster" aria-live="assertive" aria-atomic="true"></div>
 
 <script src="./config.js"></script>
-<script src="./app.js"></script>
+<script type="module" src="./app.js"></script>

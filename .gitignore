@@ -12,6 +12,7 @@ wheels/
 # Local database & env
 *.db
 .env
+.env.*
 
 # macOS
 .DS_Store

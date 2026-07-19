@@ -10,6 +10,155 @@ const API = (path) => `${window.API_BASE || ""}${path}`;
 const LS_KEY = "steellog.selection";
 
 /* ------------------------------------------------------------------ */
+/* Auth (Neon Auth = Better Auth) — gates the whole app                 */
+/* ------------------------------------------------------------------ */
+const AUTH_BASE = window.NEON_AUTH_BASE_URL || "";
+const AUTH_ENABLED = !!AUTH_BASE;
+
+let _authClient = null;
+let _authClientTried = false;
+let tokenCache = { jwt: null, exp: 0 };
+let currentUser = null;
+let authFailing = false;
+let authMode = "signin"; // "signin" | "signup"
+
+// Lazily load the Better Auth client SDK (ESM). If it can't load we fall back
+// to raw fetch against the REST endpoints, so auth still works.
+async function getAuthClient() {
+  if (_authClientTried) return _authClient;
+  _authClientTried = true;
+  try {
+    const [{ createAuthClient }, { jwtClient }] = await Promise.all([
+      import("https://esm.sh/better-auth/client"),
+      import("https://esm.sh/better-auth/client/plugins"),
+    ]);
+    _authClient = createAuthClient({ baseURL: AUTH_BASE, plugins: [jwtClient()] });
+  } catch (_) {
+    _authClient = null; // REST fallback
+  }
+  return _authClient;
+}
+
+// Better Auth client methods return a { data, error } envelope.
+function unwrap(res) {
+  if (res == null) return { data: null, error: null };
+  if (typeof res === "object" && ("data" in res || "error" in res)) return res;
+  return { data: res, error: null };
+}
+
+async function safeErr(r) {
+  try {
+    const j = await r.json();
+    return (j && (j.message || (j.error && (j.error.message || j.error)) || j.error)) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function authGetSession() {
+  if (!AUTH_ENABLED) return { user: { email: "dev@steellog.local" } };
+  const client = await getAuthClient();
+  try {
+    if (client) {
+      const { data } = unwrap(await client.getSession());
+      return data && data.user ? data : null;
+    }
+    const r = await fetch(`${AUTH_BASE}/get-session`, { credentials: "include" });
+    if (!r.ok) return null;
+    const data = await r.json();
+    return data && data.user ? data : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function decodeJwtExp(jwt) {
+  try {
+    const seg = jwt.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(decodeURIComponent(escape(atob(seg))));
+    return payload.exp ? payload.exp * 1000 : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+async function fetchFreshToken() {
+  const client = await getAuthClient();
+  try {
+    if (client && typeof client.token === "function") {
+      const { data } = unwrap(await client.token());
+      if (typeof data === "string") return data;
+      if (data && typeof data.token === "string") return data.token;
+    }
+    // REST fallback: the JWT rides on the set-auth-jwt response header.
+    const r = await fetch(`${AUTH_BASE}/get-session`, { credentials: "include" });
+    return r.headers.get("set-auth-jwt") || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Cached token with proactive refresh ~60s before the 15-min expiry.
+async function getToken(force = false) {
+  if (!AUTH_ENABLED) return null;
+  const now = Date.now();
+  if (!force && tokenCache.jwt && now < tokenCache.exp - 60000) return tokenCache.jwt;
+  const jwt = await fetchFreshToken();
+  tokenCache = jwt ? { jwt, exp: decodeJwtExp(jwt) || now + 14 * 60000 } : { jwt: null, exp: 0 };
+  return jwt;
+}
+
+async function authSignIn(email, password) {
+  const client = await getAuthClient();
+  if (client) {
+    const { error } = unwrap(await client.signIn.email({ email, password }));
+    if (error) throw new Error(error.message || "Sign-in failed.");
+    return;
+  }
+  const r = await fetch(`${AUTH_BASE}/sign-in/email`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!r.ok) throw new Error((await safeErr(r)) || "Sign-in failed.");
+}
+
+async function authSignUp(email, password, name) {
+  const client = await getAuthClient();
+  if (client) {
+    const { error } = unwrap(await client.signUp.email({ email, password, name }));
+    if (error) throw new Error(error.message || "Sign-up failed.");
+    return;
+  }
+  const r = await fetch(`${AUTH_BASE}/sign-up/email`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, name }),
+  });
+  if (!r.ok) throw new Error((await safeErr(r)) || "Sign-up failed.");
+}
+
+async function authSignOut() {
+  const client = await getAuthClient();
+  try {
+    if (client) await client.signOut();
+    else await fetch(`${AUTH_BASE}/sign-out`, { method: "POST", credentials: "include" });
+  } catch (_) {}
+}
+
+// A 401 that survives a token refresh drops the user back to the login screen.
+function handleAuthFailure() {
+  if (authFailing) return;
+  authFailing = true;
+  tokenCache = { jwt: null, exp: 0 };
+  currentUser = null;
+  resetAppUI();
+  showLoginScreen();
+}
+
+/* ------------------------------------------------------------------ */
 /* Tiny DOM helpers                                                    */
 /* ------------------------------------------------------------------ */
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -61,18 +210,36 @@ function timeoutSignal(ms) {
 async function apiJSON(path, { method = "GET", body, retries = 5 } = {}) {
   let attempt = 0;
   let showedWake = false;
+  let refreshed = false;
   const delays = [1500, 3000, 5000, 8000, 12000];
 
   while (true) {
+    const jwt = await getToken();
     const { signal, clear } = timeoutSignal(35000);
     try {
+      const headers = {};
+      if (body) headers["Content-Type"] = "application/json";
+      if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
       const res = await fetch(API(path), {
         method,
-        headers: body ? { "Content-Type": "application/json" } : undefined,
+        headers,
         body: body ? JSON.stringify(body) : undefined,
         signal,
       });
       clear();
+
+      // Expired/invalid token: refresh once and retry, else return to login.
+      if (res.status === 401 && AUTH_ENABLED) {
+        if (!refreshed) {
+          refreshed = true;
+          const fresh = await getToken(true);
+          if (fresh) continue;
+        }
+        handleAuthFailure();
+        const e = new Error("Your session expired — please sign in again.");
+        e.status = 401;
+        throw e;
+      }
 
       if (res.status >= 500 && attempt < retries) throw new Error("server " + res.status);
 
@@ -1938,9 +2105,243 @@ async function boot() {
       : programs[0].id;
     await selectProgram(startId, saved.dayId);
   } catch (err) {
+    if (err.status === 401) return; // already routed to the login screen
     $("#programList").innerHTML = "";
     showError("Can't reach the server. Check your connection and retry.", boot);
   }
 }
 
-boot();
+/* ------------------------------------------------------------------ */
+/* Login / sign-up gate (Feature: multi-user auth)                     */
+/* ------------------------------------------------------------------ */
+function ensureGate() {
+  let gate = $("#authGate");
+  if (!gate) {
+    gate = el("div", { id: "authGate", class: "authgate", role: "dialog", "aria-modal": "true", "aria-label": "Sign in" });
+    document.body.append(gate);
+  }
+  gate.hidden = false;
+  document.body.classList.add("auth-gated");
+  return gate;
+}
+function hideAuthGate() {
+  const gate = $("#authGate");
+  if (gate) gate.hidden = true;
+  document.body.classList.remove("auth-gated");
+}
+function brandMark() {
+  return el(
+    "div",
+    { class: "authgate__brand" },
+    el("span", { class: "brand__mark" }, "◆"),
+    el("span", { class: "brand__name" }, "STEEL", el("span", { class: "brand__thin" }, "LOG"))
+  );
+}
+
+function showAuthChecking() {
+  const gate = ensureGate();
+  gate.innerHTML = "";
+  gate.append(
+    el(
+      "div",
+      { class: "authgate__card" },
+      brandMark(),
+      el(
+        "div",
+        { class: "statepanel" },
+        el("div", { class: "statepanel__dot" }),
+        el("p", { class: "statepanel__msg" }, "Checking your session…")
+      )
+    )
+  );
+}
+
+function showLoginScreen() {
+  authFailing = false;
+  renderLogin(ensureGate());
+}
+
+function renderLogin(gate) {
+  const signup = authMode === "signup";
+
+  const emailIn = el("input", {
+    id: "authEmail", class: "authfield", type: "email", placeholder: "you@email.com",
+    autocomplete: "email", autocapitalize: "none", spellcheck: "false", "aria-label": "Email",
+  });
+  const passIn = el("input", {
+    id: "authPass", class: "authfield", type: "password", placeholder: "••••••••",
+    autocomplete: signup ? "new-password" : "current-password", "aria-label": "Password",
+  });
+  const nameIn = el("input", {
+    id: "authName", class: "authfield", type: "text", placeholder: "your name",
+    autocomplete: "name", "aria-label": "Name",
+  });
+
+  const errBox = el("div", { id: "authErr", class: "autherr", role: "alert", hidden: true });
+  const submit = el(
+    "button",
+    { class: "authsubmit", type: "submit" },
+    el("span", { class: "authsubmit__label" }, signup ? "Create account" : "Sign in"),
+    el("span", { class: "authsubmit__spin", "aria-hidden": "true" })
+  );
+
+  const form = el(
+    "form",
+    { class: "authform", novalidate: "" },
+    signup
+      ? el("label", { class: "authrow" }, el("span", { class: "authrow__label" }, "Name"), nameIn)
+      : null,
+    el("label", { class: "authrow" }, el("span", { class: "authrow__label" }, "Email"), emailIn),
+    el("label", { class: "authrow" }, el("span", { class: "authrow__label" }, "Password"), passIn),
+    errBox,
+    submit
+  );
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    doAuthSubmit({ email: emailIn.value, password: passIn.value, name: nameIn.value, submit, errBox });
+  });
+
+  const toggle = el(
+    "button",
+    { class: "authtoggle", type: "button" },
+    signup ? "Have an account? Sign in" : "New here? Create an account"
+  );
+  toggle.addEventListener("click", () => {
+    authMode = signup ? "signin" : "signup";
+    renderLogin(gate);
+    const em = $("#authEmail");
+    if (em) em.focus();
+  });
+
+  gate.innerHTML = "";
+  gate.append(
+    el(
+      "div",
+      { class: "authgate__card" },
+      brandMark(),
+      el("p", { class: "authgate__tag" }, "Your training ledger — locked to you."),
+      el("h1", { class: "authgate__title" }, signup ? "Create your account" : "Welcome back"),
+      form,
+      toggle
+    )
+  );
+  const em = $("#authEmail");
+  if (em) em.focus();
+}
+
+function showAuthErr(box, msg) {
+  box.textContent = msg;
+  box.hidden = false;
+}
+
+function humanizeAuthError(err, mode) {
+  const m = ((err && err.message) || "").toLowerCase();
+  if (mode === "signin" && (m.includes("invalid") || m.includes("password") || m.includes("credential") || m.includes("not found")))
+    return "Wrong email or password.";
+  if (mode === "signup" && (m.includes("exist") || m.includes("already") || m.includes("dupli") || m.includes("taken")))
+    return "That email already has an account — try signing in.";
+  return (err && err.message) || "Something went wrong. Please try again.";
+}
+
+async function doAuthSubmit({ email, password, name, submit, errBox }) {
+  errBox.hidden = true;
+  email = (email || "").trim();
+  password = password || "";
+  name = (name || "").trim();
+
+  if (!email || !password || (authMode === "signup" && !name)) {
+    showAuthErr(errBox, "Please fill in all fields.");
+    return;
+  }
+
+  submit.classList.add("is-busy");
+  submit.disabled = true;
+  const mode = authMode;
+  try {
+    if (mode === "signup") await authSignUp(email, password, name);
+    else await authSignIn(email, password);
+
+    tokenCache = { jwt: null, exp: 0 };
+    await getToken(true);
+    const session = await authGetSession();
+    currentUser = (session && session.user) || { email };
+    authFailing = false;
+    hideAuthGate();
+    startApp();
+  } catch (err) {
+    showAuthErr(errBox, humanizeAuthError(err, mode));
+  } finally {
+    submit.classList.remove("is-busy");
+    submit.disabled = false;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* App start / reset + sign-out                                        */
+/* ------------------------------------------------------------------ */
+function renderUserStrip() {
+  const strip = $("#userStrip");
+  if (!AUTH_ENABLED) {
+    strip.hidden = true;
+    return;
+  }
+  const emailEl = $("#userEmail");
+  const email = (currentUser && currentUser.email) || "";
+  emailEl.textContent = email;
+  const av = strip.querySelector(".userstrip__avatar");
+  if (av) av.textContent = (email[0] || "?").toUpperCase();
+  strip.hidden = false;
+}
+
+function resetAppUI() {
+  state.program = null;
+  state.programId = null;
+  state.programs = [];
+  authMode = "signin";
+  $("#userStrip").hidden = true;
+  closeDrawer();
+  const list = $("#programList");
+  if (list) list.innerHTML = "";
+}
+
+function startApp() {
+  renderUserStrip();
+  boot();
+}
+
+$("#signOutBtn").addEventListener("click", async () => {
+  const btn = $("#signOutBtn");
+  btn.disabled = true;
+  try {
+    await authSignOut();
+  } finally {
+    tokenCache = { jwt: null, exp: 0 };
+    currentUser = null;
+    resetAppUI();
+    btn.disabled = false;
+    showLoginScreen();
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Bootstrap: gate on auth, then start the app                         */
+/* ------------------------------------------------------------------ */
+async function bootstrapAuth() {
+  if (!AUTH_ENABLED) {
+    hideAuthGate();
+    startApp();
+    return;
+  }
+  showAuthChecking();
+  const session = await authGetSession();
+  if (session && session.user) {
+    currentUser = session.user;
+    await getToken();
+    hideAuthGate();
+    startApp();
+  } else {
+    showLoginScreen();
+  }
+}
+
+bootstrapAuth();
