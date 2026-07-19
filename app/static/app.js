@@ -190,9 +190,51 @@ function closeDrawer() {
 menuBtn.addEventListener("click", openDrawer);
 $("#drawerClose").addEventListener("click", closeDrawer);
 scrim.addEventListener("click", closeDrawer);
+
+// Central Escape handling: confirm dialog > builder > card menus/drawer.
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeDrawer();
+  if (e.key !== "Escape") return;
+  if (document.querySelector(".cdlg")) return; // the dialog handles its own Escape
+  if (builder.open) {
+    cancelBuilder();
+    return;
+  }
+  closeAllCardMenus();
+  closeDrawer();
 });
+
+/* ------------------------------------------------------------------ */
+/* Collapsible desktop sidebar (Feature A)                             */
+/* ------------------------------------------------------------------ */
+const SB_KEY = "steellog.sidebar";
+const sidebarToggle = $("#sidebarToggle");
+
+function applySidebar(collapsed) {
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  sidebarToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  sidebarToggle.setAttribute("aria-label", collapsed ? "Show sidebar" : "Collapse sidebar");
+  sidebarToggle.title = collapsed ? "Show sidebar" : "Collapse sidebar";
+  const ico = sidebarToggle.querySelector(".rail-ico");
+  if (ico) ico.textContent = collapsed ? "»" : "«";
+}
+
+sidebarToggle.addEventListener("click", () => {
+  const collapsed = !document.body.classList.contains("sidebar-collapsed");
+  applySidebar(collapsed);
+  try {
+    localStorage.setItem(SB_KEY, collapsed ? "1" : "0");
+  } catch (_) {}
+});
+
+applySidebar(
+  (() => {
+    try {
+      return localStorage.getItem(SB_KEY) === "1";
+    } catch (_) {
+      return false;
+    }
+  })()
+);
 
 /* ------------------------------------------------------------------ */
 /* Toasts                                                              */
@@ -228,25 +270,116 @@ function renderProgramList() {
   const list = $("#programList");
   list.innerHTML = "";
   for (const p of state.programs) {
-    const card = el(
-      "button",
-      {
-        class: "progcard" + (p.id === state.programId ? " is-active" : ""),
-        type: "button",
-        "aria-current": p.id === state.programId ? "true" : null,
-        onClick: () => selectProgram(p.id),
-      },
-      el("h3", { class: "progcard__name" }, p.name),
-      el("p", { class: "progcard__sub" }, p.subtitle || ""),
-      el(
-        "div",
-        { class: "progcard__meta" },
-        el("span", { html: `<b>${p.day_count}</b> days` }),
-        el("span", { html: `<b>${p.exercise_count}</b> lifts` })
-      )
-    );
-    list.append(card);
+    list.append(buildProgramCard(p));
   }
+}
+
+function buildProgramCard(p) {
+  const active = p.id === state.programId;
+  const isSeed = p.origin === "seed";
+
+  const main = el(
+    "button",
+    {
+      class: "progcard__main",
+      type: "button",
+      "aria-current": active ? "true" : null,
+      onClick: () => selectProgram(p.id),
+    },
+    el("h3", { class: "progcard__name" }, p.name),
+    el("p", { class: "progcard__sub" }, p.subtitle || ""),
+    el(
+      "div",
+      { class: "progcard__meta" },
+      el("span", { html: `<b>${p.day_count}</b> days` }),
+      el("span", { html: `<b>${p.exercise_count}</b> lifts` }),
+      el(
+        "span",
+        { class: "progcard__origin" + (isSeed ? "" : " progcard__origin--custom") },
+        isSeed ? "Original" : "Custom"
+      )
+    )
+  );
+
+  const kebab = el(
+    "button",
+    {
+      class: "progcard__kebab",
+      type: "button",
+      "aria-label": `Actions for ${p.name}`,
+      "aria-expanded": "false",
+      "aria-haspopup": "true",
+    },
+    "⋯"
+  );
+
+  const actions = el(
+    "div",
+    { class: "progcard__actions", role: "menu" },
+    actionBtn("Edit", "edit", () => openBuilderEdit(p.id)),
+    actionBtn("Duplicate", "duplicate", () => openBuilderDuplicate(p.id)),
+    isSeed
+      ? actionBtn("Reset to original", "reset", () => resetProgram(p), false)
+      : actionBtn("Delete", "delete", () => deleteProgram(p), true)
+  );
+
+  const card = el(
+    "div",
+    { class: "progcard" + (active ? " is-active" : ""), "data-id": p.id },
+    main,
+    kebab,
+    actions
+  );
+  kebab.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleCardMenu(card);
+  });
+  return card;
+}
+
+function actionBtn(label, act, fn, danger) {
+  return el(
+    "button",
+    {
+      class: "progcard__act" + (danger ? " progcard__act--danger" : ""),
+      type: "button",
+      role: "menuitem",
+      "data-act": act,
+      onClick: (e) => {
+        e.stopPropagation();
+        closeAllCardMenus();
+        fn();
+      },
+    },
+    label
+  );
+}
+
+function closeAllCardMenus(except) {
+  $$(".progcard.is-menuopen").forEach((c) => {
+    if (c === except) return;
+    c.classList.remove("is-menuopen");
+    const k = c.querySelector(".progcard__kebab");
+    if (k) k.setAttribute("aria-expanded", "false");
+  });
+}
+
+function toggleCardMenu(card) {
+  const willOpen = !card.classList.contains("is-menuopen");
+  closeAllCardMenus();
+  card.classList.toggle("is-menuopen", willOpen);
+  card.querySelector(".progcard__kebab").setAttribute("aria-expanded", willOpen ? "true" : "false");
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".progcard")) closeAllCardMenus();
+});
+
+async function reloadPrograms() {
+  const programs = await apiJSON("/api/programs");
+  state.programs = programs;
+  renderProgramList();
+  return programs;
 }
 
 /* ------------------------------------------------------------------ */
@@ -789,8 +922,8 @@ async function hydrateHistory() {
 /* ------------------------------------------------------------------ */
 /* Selection flow                                                      */
 /* ------------------------------------------------------------------ */
-async function selectProgram(programId, preferredDayId) {
-  if (state.programId === programId && state.program) {
+async function selectProgram(programId, preferredDayId, opts = {}) {
+  if (!opts.force && state.programId === programId && state.program) {
     closeDrawer();
     return;
   }
@@ -1151,6 +1284,639 @@ function showError(msg, retryFn) {
   }
   list.append(panel);
 }
+
+/* ------------------------------------------------------------------ */
+/* Confirm dialog (in-aesthetic, promise-based)                        */
+/* ------------------------------------------------------------------ */
+function confirmDialog({ title, message, confirmLabel = "Confirm", danger = false }) {
+  return new Promise((resolve) => {
+    const cancelBtn = el("button", { class: "cdlg__btn cdlg__cancel", type: "button" }, "Cancel");
+    const okBtn = el(
+      "button",
+      { class: "cdlg__btn cdlg__ok" + (danger ? " cdlg__ok--danger" : ""), type: "button" },
+      confirmLabel
+    );
+    const box = el(
+      "div",
+      { class: "cdlg__box", role: "alertdialog", "aria-modal": "true", "aria-label": title },
+      el("h3", { class: "cdlg__title" }, title),
+      message ? el("p", { class: "cdlg__msg" }, message) : null,
+      el("div", { class: "cdlg__actions" }, cancelBtn, okBtn)
+    );
+    const overlay = el("div", { class: "cdlg" }, box);
+
+    function close(val) {
+      overlay.classList.add("out");
+      document.removeEventListener("keydown", onKey, true);
+      setTimeout(() => overlay.remove(), 160);
+      resolve(val);
+    }
+    function onKey(e) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close(false);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        close(true);
+      }
+    }
+    cancelBtn.addEventListener("click", () => close(false));
+    okBtn.addEventListener("click", () => close(true));
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) close(false);
+    });
+    document.addEventListener("keydown", onKey, true);
+    document.body.append(overlay);
+    okBtn.focus();
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* Delete / Reset program                                              */
+/* ------------------------------------------------------------------ */
+async function deleteProgram(p) {
+  const ok = await confirmDialog({
+    title: "Delete routine?",
+    message: `"${p.name}" and its plan will be removed. Logged sets stay in your history.`,
+    confirmLabel: "Delete",
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await apiJSON(`/api/programs/${encodeURIComponent(p.id)}`, { method: "DELETE" });
+    const programs = await reloadPrograms();
+    if (state.programId === p.id) {
+      state.program = null;
+      state.programId = null;
+      if (programs.length) await selectProgram(programs[0].id, null, { force: true });
+    }
+    toast("Routine deleted.", { type: "ok" });
+  } catch (err) {
+    toast(err.message || "Couldn't delete this routine.", { type: "err" });
+  }
+}
+
+async function resetProgram(p) {
+  const ok = await confirmDialog({
+    title: "Restore original?",
+    message: `"${p.name}" will be reset to its original plan. Your logged sets are kept.`,
+    confirmLabel: "Restore",
+  });
+  if (!ok) return;
+  try {
+    const fresh = await apiJSON(`/api/programs/${encodeURIComponent(p.id)}/reset`, { method: "POST" });
+    await reloadPrograms();
+    await selectProgram(fresh.id, null, { force: true });
+    setView("train");
+    toast("Routine restored to original.", { type: "ok" });
+  } catch (err) {
+    toast(err.message || "Couldn't reset this routine.", { type: "err" });
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Workout builder (Feature B) — create + edit share one UI            */
+/* ------------------------------------------------------------------ */
+const builder = {
+  open: false,
+  mode: "create", // "create" | "edit"
+  programId: null,
+  origin: null,
+  dirty: false,
+  name: "",
+  subtitle: "",
+  days: [],
+};
+
+const blankExercise = () => ({ name: "", category: "", sets: "", reps: "", weight: "", notes: "" });
+const blankDay = () => ({ label: "", title: "", exercises: [blankExercise()] });
+
+function cloneDay(d, keepIds) {
+  return {
+    ...(keepIds && d.id != null ? { id: d.id } : {}),
+    label: d.label || "",
+    title: d.title || "",
+    exercises: (d.exercises || []).map((e) => ({
+      ...(keepIds && e.id != null ? { id: e.id } : {}),
+      name: e.name || "",
+      category: e.category || "",
+      sets: e.sets || "",
+      reps: e.reps || "",
+      weight: e.weight || "",
+      notes: e.notes || "",
+    })),
+  };
+}
+
+const markDirty = () => {
+  builder.dirty = true;
+};
+
+function showBuilder() {
+  builder.open = true;
+  $("#builder").hidden = false;
+  document.body.classList.add("modal-open");
+}
+function hideBuilder() {
+  builder.open = false;
+  $("#builder").hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function showBuilderLoading(title) {
+  const root = $("#builder");
+  root.innerHTML = "";
+  root.append(
+    el(
+      "div",
+      { class: "builder__bar" },
+      el("span", { class: "builder__x builder__x--ghost", "aria-hidden": "true" }, "✕"),
+      el("h2", { class: "builder__title" }, title || "Loading…"),
+      el("span", { class: "builder__save builder__save--ghost", "aria-hidden": "true" }, "Save")
+    ),
+    el(
+      "div",
+      { class: "builder__body" },
+      el(
+        "div",
+        { class: "statepanel" },
+        el("div", { class: "statepanel__dot" }),
+        el("p", { class: "statepanel__msg" }, "Loading routine…")
+      )
+    )
+  );
+  showBuilder();
+}
+
+function openBuilderCreate() {
+  closeDrawer();
+  Object.assign(builder, {
+    open: true,
+    mode: "create",
+    programId: null,
+    origin: null,
+    dirty: false,
+    name: "",
+    subtitle: "",
+    days: [blankDay()],
+  });
+  renderBuilder();
+  showBuilder();
+}
+
+async function openBuilderEdit(id) {
+  closeDrawer();
+  showBuilderLoading("Edit routine");
+  try {
+    const p = await apiJSON(`/api/programs/${encodeURIComponent(id)}`);
+    Object.assign(builder, {
+      mode: "edit",
+      programId: p.id,
+      origin: p.origin,
+      dirty: false,
+      name: p.name,
+      subtitle: p.subtitle || "",
+      days: p.days.map((d) => cloneDay(d, true)),
+    });
+    renderBuilder();
+  } catch (err) {
+    hideBuilder();
+    toast(err.message || "Couldn't open this routine.", { type: "err" });
+  }
+}
+
+async function openBuilderDuplicate(id) {
+  closeDrawer();
+  showBuilderLoading("New routine");
+  try {
+    const p = await apiJSON(`/api/programs/${encodeURIComponent(id)}`);
+    Object.assign(builder, {
+      mode: "create",
+      programId: null,
+      origin: null,
+      dirty: false,
+      name: `${p.name} (copy)`,
+      subtitle: p.subtitle || "",
+      days: p.days.map((d) => cloneDay(d, false)),
+    });
+    renderBuilder();
+  } catch (err) {
+    hideBuilder();
+    toast(err.message || "Couldn't duplicate this routine.", { type: "err" });
+  }
+}
+
+/* ---- rendering ---- */
+function renderBuilder() {
+  const root = $("#builder");
+  root.innerHTML = "";
+
+  const xBtn = el("button", { class: "builder__x", type: "button", "aria-label": "Close builder" }, "✕");
+  xBtn.addEventListener("click", cancelBuilder);
+
+  const saveBtn = el(
+    "button",
+    { id: "builderSave", class: "builder__save", type: "button" },
+    el("span", { class: "builder__save-label" }, "Save"),
+    el("span", { class: "builder__save-spin", "aria-hidden": "true" })
+  );
+  saveBtn.addEventListener("click", saveBuilder);
+
+  const bar = el(
+    "div",
+    { class: "builder__bar" },
+    xBtn,
+    el("h2", { id: "builderTitle", class: "builder__title" }, builder.mode === "edit" ? "Edit routine" : "New routine"),
+    saveBtn
+  );
+
+  const body = el("div", { class: "builder__body" });
+
+  // meta
+  const nameField = builderField("Routine name", "bName", builder.name, "e.g. Push / Pull / Legs", (v) => {
+    builder.name = v;
+  });
+  nameField.querySelector("input").setAttribute("required", "");
+  const subField = builderField("Subtitle", "bSubtitle", builder.subtitle, "optional — e.g. 4 days / week", (v) => {
+    builder.subtitle = v;
+  });
+  body.append(el("div", { class: "builder__meta" }, nameField, subField));
+
+  // template (create only)
+  if (builder.mode === "create") body.append(templateBlock());
+
+  // days
+  body.append(el("div", { class: "builder__sechead" }, el("h3", {}, "Days")));
+  body.append(el("div", { id: "builderDays", class: "builder__days" }));
+  const addDayBtn = el("button", { class: "builder__adddaybtn", type: "button" }, "+ Add day");
+  addDayBtn.addEventListener("click", addDay);
+  body.append(addDayBtn);
+
+  root.append(bar, body);
+  renderDays();
+}
+
+function builderField(label, id, value, placeholder, onInput) {
+  const input = el("input", {
+    id,
+    class: "bfield__input",
+    type: "text",
+    value: value || "",
+    placeholder,
+    autocomplete: "off",
+  });
+  input.addEventListener("input", () => {
+    onInput(input.value);
+    markDirty();
+    input.classList.remove("is-error");
+  });
+  return el("label", { class: "bfield" }, el("span", { class: "bfield__label" }, label), input);
+}
+
+function templateBlock() {
+  const sel = el("select", { id: "bTemplate", class: "bfield__input bfield__select" });
+  sel.append(el("option", { value: "" }, "Blank"));
+  state.programs.forEach((p) => sel.append(el("option", { value: p.id }, `Duplicate: ${p.name}`)));
+  sel.addEventListener("change", () => onTemplateChange(sel));
+  return el(
+    "label",
+    { class: "bfield bfield--template" },
+    el("span", { class: "bfield__label" }, "Start from"),
+    sel
+  );
+}
+
+async function onTemplateChange(sel) {
+  const val = sel.value;
+  const hasEntries =
+    builder.name.trim() || builder.days.some((d) => d.label.trim() || d.exercises.some((e) => e.name.trim()));
+  if (builder.dirty && hasEntries) {
+    const ok = await confirmDialog({
+      title: "Replace draft?",
+      message: "Loading a template replaces your current entries.",
+      confirmLabel: "Replace",
+      danger: true,
+    });
+    if (!ok) {
+      sel.value = "";
+      return;
+    }
+  }
+  if (!val) {
+    Object.assign(builder, { name: "", subtitle: "", days: [blankDay()] });
+  } else {
+    try {
+      const p = await apiJSON(`/api/programs/${encodeURIComponent(val)}`);
+      Object.assign(builder, {
+        name: `${p.name} (copy)`,
+        subtitle: p.subtitle || "",
+        days: p.days.map((d) => cloneDay(d, false)),
+      });
+    } catch (err) {
+      toast(err.message || "Couldn't load template.", { type: "err" });
+      sel.value = "";
+      return;
+    }
+  }
+  builder.dirty = true;
+  renderBuilder();
+}
+
+function renderDays() {
+  const wrap = $("#builderDays");
+  wrap.innerHTML = "";
+  if (!builder.days.length) {
+    wrap.append(el("p", { class: "builder__empty" }, "No days yet — add your first training day."));
+    return;
+  }
+  builder.days.forEach((d, i) => wrap.append(buildDayEditor(d, i)));
+}
+
+function buildDayEditor(d, i) {
+  const first = i === 0;
+  const last = i === builder.days.length - 1;
+
+  const up = moveButton("Move day up", first, () => moveDay(i, -1), "↑");
+  const down = moveButton("Move day down", last, () => moveDay(i, 1), "↓");
+  const del = el("button", { class: "bdel", type: "button", "aria-label": `Remove day ${i + 1}` }, "✕");
+  del.addEventListener("click", () => removeDay(i));
+
+  const labelInput = el("input", {
+    class: "bday__label",
+    type: "text",
+    value: d.label || "",
+    placeholder: "Label — e.g. Push",
+    autocomplete: "off",
+    "aria-label": `Day ${i + 1} label`,
+  });
+  labelInput.addEventListener("input", () => {
+    d.label = labelInput.value;
+    markDirty();
+    labelInput.classList.remove("is-error");
+  });
+  const titleInput = el("input", {
+    class: "bday__title",
+    type: "text",
+    value: d.title || "",
+    placeholder: "Title (optional) — e.g. Push — Chest + Shoulders",
+    autocomplete: "off",
+    "aria-label": `Day ${i + 1} title`,
+  });
+  titleInput.addEventListener("input", () => {
+    d.title = titleInput.value;
+    markDirty();
+  });
+
+  const exList = el("div", { class: "bexlist" });
+  d.exercises.forEach((e, j) => exList.append(buildExEditor(d, e, i, j)));
+
+  const addEx = el("button", { class: "bexadd", type: "button" }, "+ Add exercise");
+  addEx.addEventListener("click", () => addExercise(i));
+
+  return el(
+    "section",
+    { class: "bday", "data-i": String(i) },
+    el(
+      "div",
+      { class: "bday__head" },
+      el("span", { class: "bday__num" }, `Day ${i + 1}`),
+      el("div", { class: "bday__tools" }, up, down, del)
+    ),
+    el("div", { class: "bday__fields" }, labelInput, titleInput),
+    exList,
+    addEx
+  );
+}
+
+function buildExEditor(d, e, i, j) {
+  const first = j === 0;
+  const last = j === d.exercises.length - 1;
+
+  const up = moveButton("Move exercise up", first, () => moveExercise(i, j, -1), "↑");
+  const down = moveButton("Move exercise down", last, () => moveExercise(i, j, 1), "↓");
+  const del = el("button", { class: "bdel bdel--sm", type: "button", "aria-label": "Remove exercise" }, "✕");
+  del.addEventListener("click", () => removeExercise(i, j));
+
+  const nameInput = el("input", {
+    class: "bex__name",
+    type: "text",
+    value: e.name || "",
+    placeholder: "Exercise name",
+    autocomplete: "off",
+    "aria-label": "Exercise name",
+  });
+  nameInput.addEventListener("input", () => {
+    e.name = nameInput.value;
+    markDirty();
+    nameInput.classList.remove("is-error");
+  });
+
+  const grid = el(
+    "div",
+    { class: "bex__grid" },
+    exField(e, "category", "Category", { list: "catPresets" }),
+    exField(e, "sets", "Sets"),
+    exField(e, "reps", "Reps"),
+    exField(e, "weight", "Weight")
+  );
+
+  const notes = el("input", {
+    class: "bex__notes",
+    type: "text",
+    value: e.notes || "",
+    placeholder: "Notes / cues (optional)",
+    autocomplete: "off",
+    "aria-label": "Notes",
+  });
+  notes.addEventListener("input", () => {
+    e.notes = notes.value;
+    markDirty();
+  });
+
+  return el(
+    "div",
+    { class: "bex", "data-j": String(j) },
+    el("div", { class: "bex__top" }, nameInput, el("div", { class: "bex__tools" }, up, down, del)),
+    grid,
+    notes
+  );
+}
+
+function exField(e, key, placeholder, extra = {}) {
+  const input = el("input", {
+    class: "bex__in",
+    type: "text",
+    value: e[key] || "",
+    placeholder,
+    autocomplete: "off",
+    "aria-label": placeholder,
+    ...extra,
+  });
+  input.addEventListener("input", () => {
+    e[key] = input.value;
+    markDirty();
+  });
+  return input;
+}
+
+function moveButton(label, disabled, fn, glyph) {
+  const b = el("button", { class: "bmove", type: "button", "aria-label": label, disabled: disabled ? "" : null }, glyph);
+  if (!disabled) b.addEventListener("click", fn);
+  return b;
+}
+
+/* ---- structural mutations ---- */
+function addDay() {
+  builder.days.push(blankDay());
+  markDirty();
+  renderDays();
+  focusSel(`.bday[data-i="${builder.days.length - 1}"] .bday__label`);
+}
+function removeDay(i) {
+  builder.days.splice(i, 1);
+  markDirty();
+  renderDays();
+}
+function moveDay(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= builder.days.length) return;
+  [builder.days[i], builder.days[j]] = [builder.days[j], builder.days[i]];
+  markDirty();
+  renderDays();
+}
+function addExercise(i) {
+  builder.days[i].exercises.push(blankExercise());
+  markDirty();
+  renderDays();
+  focusSel(`.bday[data-i="${i}"] .bex[data-j="${builder.days[i].exercises.length - 1}"] .bex__name`);
+}
+function removeExercise(i, j) {
+  builder.days[i].exercises.splice(j, 1);
+  markDirty();
+  renderDays();
+}
+function moveExercise(i, j, dir) {
+  const arr = builder.days[i].exercises;
+  const k = j + dir;
+  if (k < 0 || k >= arr.length) return;
+  [arr[j], arr[k]] = [arr[k], arr[j]];
+  markDirty();
+  renderDays();
+}
+function focusSel(sel) {
+  const node = $(sel);
+  if (node) node.focus();
+}
+
+/* ---- validation + save ---- */
+function validateBuilder() {
+  $$("#builder .is-error").forEach((n) => n.classList.remove("is-error"));
+  const bad = [];
+  const nameEl = $("#bName");
+  if (!builder.name.trim() && nameEl) {
+    nameEl.classList.add("is-error");
+    bad.push(nameEl);
+  }
+  if (!builder.days.length) {
+    toast("Add at least one day.", { type: "err" });
+  }
+  builder.days.forEach((d, i) => {
+    if (!d.label.trim()) {
+      const n = $(`.bday[data-i="${i}"] .bday__label`);
+      if (n) {
+        n.classList.add("is-error");
+        bad.push(n);
+      }
+    }
+    d.exercises.forEach((e, j) => {
+      if (!e.name.trim()) {
+        const n = $(`.bday[data-i="${i}"] .bex[data-j="${j}"] .bex__name`);
+        if (n) {
+          n.classList.add("is-error");
+          bad.push(n);
+        }
+      }
+    });
+  });
+  return bad;
+}
+
+function buildPayload() {
+  const keepIds = builder.mode === "edit";
+  return {
+    name: builder.name.trim(),
+    subtitle: builder.subtitle.trim(),
+    days: builder.days.map((d) => {
+      const day = {
+        ...(keepIds && d.id != null ? { id: d.id } : {}),
+        label: d.label.trim(),
+        title: (d.title || "").trim(),
+        exercises: d.exercises.map((e) => ({
+          ...(keepIds && e.id != null ? { id: e.id } : {}),
+          name: e.name.trim(),
+          category: (e.category || "").trim(),
+          sets: (e.sets || "").trim(),
+          reps: (e.reps || "").trim(),
+          weight: (e.weight || "").trim(),
+          notes: (e.notes || "").trim(),
+        })),
+      };
+      return day;
+    }),
+  };
+}
+
+async function saveBuilder() {
+  const bad = validateBuilder();
+  if (bad.length || !builder.days.length) {
+    if (bad.length) {
+      bad[0].focus();
+      bad[0].scrollIntoView({ block: "center", behavior: "smooth" });
+      toast("Fill in the highlighted required fields.", { type: "err" });
+    }
+    return;
+  }
+
+  const payload = buildPayload();
+  const saveBtn = $("#builderSave");
+  saveBtn.classList.add("is-busy");
+  saveBtn.disabled = true;
+
+  const isEdit = builder.mode === "edit";
+  try {
+    const saved = isEdit
+      ? await apiJSON(`/api/programs/${encodeURIComponent(builder.programId)}`, { method: "PUT", body: payload })
+      : await apiJSON("/api/programs", { method: "POST", body: payload });
+
+    builder.dirty = false;
+    hideBuilder();
+    await reloadPrograms();
+    await selectProgram(saved.id, null, { force: true });
+    setView("train");
+    toast(isEdit ? "Routine saved." : "Routine created.", { type: "ok" });
+  } catch (err) {
+    toast(err.message || "Couldn't save this routine.", { type: "err" });
+  } finally {
+    saveBtn.classList.remove("is-busy");
+    saveBtn.disabled = false;
+  }
+}
+
+async function cancelBuilder() {
+  if (builder.dirty) {
+    const ok = await confirmDialog({
+      title: "Discard changes?",
+      message: "Your unsaved routine changes will be lost.",
+      confirmLabel: "Discard",
+      danger: true,
+    });
+    if (!ok) return;
+  }
+  builder.dirty = false;
+  hideBuilder();
+}
+
+$("#newRoutineBtn").addEventListener("click", openBuilderCreate);
 
 /* ------------------------------------------------------------------ */
 /* Boot                                                                */

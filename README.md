@@ -1,12 +1,16 @@
 # Workout Schedule
 
-A personal, mobile-first workout tracker. It renders two training programs
-(parsed from the source spreadsheets) and logs every set to a database so you
-can see previous performance and beat it — across your phone and laptop.
+A personal, mobile-first workout tracker. It ships with two training programs
+(parsed from the source spreadsheets), lets you build and edit your own, and
+logs every set to a database so you can see previous performance and beat it —
+across your phone and laptop.
 
 - **Backend:** FastAPI + SQLAlchemy (SQLite locally; SQLite-on-volume or Postgres in prod)
 - **Frontend:** no-build vanilla HTML/CSS/JS ("Steel Log" industrial theme), served as static files
-- **Data:** `hypertrophy.xlsx` and `hybrid_training.xlsx` → normalized `app/data/programs.json`
+- **Programs:** stored in the database. On first run the two originals are seeded
+  from `app/data/programs.json` (derived from `hypertrophy.xlsx` /
+  `hybrid_training.xlsx`); they stay editable and resettable but can't be
+  deleted. Custom routines are full create/edit/delete.
 
 ## Project layout
 
@@ -15,11 +19,11 @@ app/
   main.py          FastAPI app: program catalogue + set-logging API + static frontend
   config.py        Env-driven config (DATABASE_URL, CORS_ORIGINS)
   database.py      SQLAlchemy engine / session / Base
-  models.py        SetLog table
+  models.py        Program and SetLog tables
   schemas.py       Pydantic request/response models
-  programs.py      Loads programs.json
+  programs.py      Seed catalogue source + builder id helpers
   data/
-    programs.json  Normalized program catalogue (committed; generated from the xlsx)
+    programs.json  Seed programs (committed; generated from the xlsx)
   static/          Frontend (index.html, styles.css, app.js, config.js)
 scripts/
   parse_workouts.py  Build-time: xlsx -> app/data/programs.json
@@ -50,16 +54,22 @@ uv run --group dev python scripts/parse_workouts.py
 
 | Method | Path | Purpose |
 | ------ | ---- | ------- |
-| GET | `/api/programs` | List programs (id, name, subtitle, counts) |
+| GET | `/api/programs` | List programs (id, name, subtitle, origin, counts) |
 | GET | `/api/programs/{program_id}` | Full program with days + exercises |
+| POST | `/api/programs` | Create a routine (server assigns fresh ids) |
+| PUT | `/api/programs/{program_id}` | Edit a routine (existing day/exercise ids are preserved) |
+| DELETE | `/api/programs/{program_id}` | Delete a custom routine (409 for a seed) |
+| POST | `/api/programs/{program_id}/reset` | Reset a seed routine to its original (409 for custom) |
 | POST | `/api/logs` | Log a performed set |
 | GET | `/api/logs?exercise_id=&program_id=&limit=` | Recent logs (newest first) |
 | DELETE | `/api/logs/{id}` | Delete a logged set |
-| GET | `/api/exercises/{exercise_id}/stats` | Totals, best load, best est. 1RM, last set |
+| GET | `/api/exercises/{exercise_id}/stats` | Totals, best load, last set |
 | GET | `/api/health` | Health check |
 
-`est_1rm` is the Epley estimate (`weight * (1 + reps/30)`); it's `null` for
-bodyweight sets (no weight entered).
+Each program has an `origin`: `seed` (the two originals — editable + resettable,
+not deletable) or `custom` (user-built — full CRUD). On edit, send each existing
+day/exercise's `id` back so logged history stays attached; omit `id` on new
+items and the server assigns one.
 
 ## Configuration (environment variables)
 

@@ -21,6 +21,10 @@
     <span class="iconbtn__bars"><i></i><i></i><i></i></span>
   </button>
 
+  <button id="sidebarToggle" class="iconbtn iconbtn--rail" type="button" aria-label="Collapse sidebar" aria-expanded="true" aria-controls="drawer" title="Collapse sidebar">
+    <span class="rail-ico" aria-hidden="true">«</span>
+  </button>
+
   <div class="brand">
     <span class="brand__mark">◆</span>
     <span class="brand__name">STEEL<span class="brand__thin">LOG</span></span>
@@ -47,6 +51,9 @@
       <h2 class="drawer__title">Programs</h2>
       <button id="drawerClose" class="iconbtn iconbtn--x" aria-label="Close menu">✕</button>
     </div>
+    <button id="newRoutineBtn" class="drawer__new" type="button">
+      <span class="drawer__new-plus" aria-hidden="true">+</span> New routine
+    </button>
     <nav id="programList" class="proglist" aria-label="Choose a program">
       <!-- program cards injected here -->
       <div class="proglist__loading skel-stack">
@@ -97,6 +104,18 @@
     <section id="progressView" class="progress" role="tabpanel" aria-label="Progress" hidden></section>
   </main>
 </div>
+
+<!-- Category presets for the builder -->
+<datalist id="catPresets">
+  <option value="Strength"></option>
+  <option value="Hypertrophy"></option>
+  <option value="Mobility"></option>
+  <option value="Core"></option>
+  <option value="Skill/Core"></option>
+</datalist>
+
+<!-- Workout builder (create + edit) — populated by app.js -->
+<div id="builder" class="builder" role="dialog" aria-modal="true" aria-labelledby="builderTitle" hidden></div>
 
 <!-- Toast region -->
 <div id="toaster" class="toaster" aria-live="assertive" aria-atomic="true"></div>

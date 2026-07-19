@@ -10,26 +10,53 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import programs
 from app.config import CORS_ORIGINS
-from app.database import Base, engine, get_db
+from app.database import Base, SessionLocal, engine, get_db
+from app.models import Program as ProgramRow
 from app.models import SetLog
 from app.schemas import (
     ExerciseStats,
     Program,
+    ProgramInput,
     ProgramSummary,
     SetLogCreate,
     SetLogOut,
 )
 
+
+def seed_programs_if_empty() -> None:
+    """On first run, import the two original programs from programs.json.
+
+    They are inserted verbatim (same program/exercise ids) so existing logs
+    still match, and marked origin="seed" so they can be reset but not deleted.
+    """
+    with SessionLocal() as db:
+        if db.scalar(select(func.count()).select_from(ProgramRow)):
+            return
+        for order, doc in enumerate(programs.seed_programs()):
+            db.add(
+                ProgramRow(
+                    id=doc["id"],
+                    name=doc["name"],
+                    subtitle=doc.get("subtitle", ""),
+                    origin="seed",
+                    days=doc["days"],
+                    sort_order=order,
+                )
+            )
+        db.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on boot. For a single-table app this is simpler than
+    # Create tables on boot. For this small schema this is simpler than
     # wiring up migrations; swap in Alembic later if the schema grows.
     Base.metadata.create_all(bind=engine)
+    seed_programs_if_empty()
     yield
 
 
@@ -44,29 +71,118 @@ app.add_middleware(
 
 
 # --- Program catalogue -----------------------------------------------------
+def _program_detail(row: ProgramRow) -> dict:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "subtitle": row.subtitle,
+        "origin": row.origin,
+        "days": row.days,
+    }
+
+
+def _get_program_row(program_id: str, db: Session) -> ProgramRow:
+    row = db.get(ProgramRow, program_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Program not found")
+    return row
+
+
 @app.get("/api/programs", response_model=list[ProgramSummary])
-def list_programs() -> list[ProgramSummary]:
-    result = []
-    for p in programs.all_programs():
-        exercise_count = sum(len(d["exercises"]) for d in p["days"])
-        result.append(
-            ProgramSummary(
-                id=p["id"],
-                name=p["name"],
-                subtitle=p["subtitle"],
-                day_count=len(p["days"]),
-                exercise_count=exercise_count,
-            )
+def list_programs(db: Session = Depends(get_db)) -> list[ProgramSummary]:
+    rows = db.scalars(
+        select(ProgramRow).order_by(ProgramRow.sort_order, ProgramRow.created_at)
+    )
+    return [
+        ProgramSummary(
+            id=r.id,
+            name=r.name,
+            subtitle=r.subtitle,
+            origin=r.origin,
+            day_count=len(r.days),
+            exercise_count=sum(len(d["exercises"]) for d in r.days),
         )
-    return result
+        for r in rows
+    ]
 
 
 @app.get("/api/programs/{program_id}", response_model=Program)
-def get_program(program_id: str) -> dict:
-    program = programs.get_program(program_id)
-    if program is None:
-        raise HTTPException(status_code=404, detail="Program not found")
-    return program
+def get_program(program_id: str, db: Session = Depends(get_db)) -> dict:
+    return _program_detail(_get_program_row(program_id, db))
+
+
+@app.post("/api/programs", response_model=Program, status_code=201)
+def create_program(
+    payload: ProgramInput, db: Session = Depends(get_db)
+) -> dict:
+    taken = set(db.scalars(select(ProgramRow.id)))
+    program_id = programs.new_program_id(payload.name, taken)
+    # Create always mints fresh ids: a new routine (even one duplicated from an
+    # existing program) must not reuse another program's exercise ids, or logs
+    # would cross-link. Editing (PUT) is where ids are preserved.
+    fresh_days = []
+    for d in payload.days:
+        day = d.model_dump()
+        day["id"] = None
+        day["exercises"] = [{**e, "id": None} for e in day["exercises"]]
+        fresh_days.append(day)
+    days = programs.assign_ids(program_id, fresh_days)
+    next_order = (db.scalar(select(func.max(ProgramRow.sort_order))) or 0) + 1
+    row = ProgramRow(
+        id=program_id,
+        name=payload.name,
+        subtitle=payload.subtitle,
+        origin="custom",
+        days=days,
+        sort_order=next_order,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _program_detail(row)
+
+
+@app.put("/api/programs/{program_id}", response_model=Program)
+def update_program(
+    program_id: str, payload: ProgramInput, db: Session = Depends(get_db)
+) -> dict:
+    row = _get_program_row(program_id, db)
+    row.name = payload.name
+    row.subtitle = payload.subtitle
+    row.days = programs.assign_ids(
+        program_id, [d.model_dump() for d in payload.days]
+    )
+    db.commit()
+    db.refresh(row)
+    return _program_detail(row)
+
+
+@app.delete("/api/programs/{program_id}", status_code=204)
+def delete_program(program_id: str, db: Session = Depends(get_db)) -> None:
+    row = _get_program_row(program_id, db)
+    if row.origin == "seed":
+        raise HTTPException(
+            status_code=409,
+            detail="Original programs can't be deleted — reset it instead.",
+        )
+    db.delete(row)
+    db.commit()
+
+
+@app.post("/api/programs/{program_id}/reset", response_model=Program)
+def reset_program(program_id: str, db: Session = Depends(get_db)) -> dict:
+    row = _get_program_row(program_id, db)
+    original = programs.original_program(program_id)
+    if row.origin != "seed" or original is None:
+        raise HTTPException(
+            status_code=409, detail="Only original programs can be reset."
+        )
+    row.name = original["name"]
+    row.subtitle = original.get("subtitle", "")
+    row.days = original["days"]
+    db.commit()
+    db.refresh(row)
+    return _program_detail(row)
 
 
 # --- Set logging -----------------------------------------------------------
