@@ -1176,16 +1176,18 @@ function selectDay(dayId) {
 /* View toggle: TRAIN <-> PROGRESS                                     */
 /* ------------------------------------------------------------------ */
 function setView(view) {
-  if (view !== "train" && view !== "progress") return;
+  if (view !== "train" && view !== "progress" && view !== "calendar") return;
   state.view = view;
   $("#trainView").hidden = view !== "train";
   $("#progressView").hidden = view !== "progress";
+  $("#calendarView").hidden = view !== "calendar";
   $$("#viewToggle .viewtoggle__btn").forEach((b) => {
     const active = b.dataset.view === view;
     b.classList.toggle("is-active", active);
     b.setAttribute("aria-selected", active ? "true" : "false");
   });
   if (view === "progress") renderProgress();
+  if (view === "calendar") renderCalendar();
 }
 
 $$("#viewToggle .viewtoggle__btn").forEach((b) =>
@@ -1463,6 +1465,284 @@ async function openInTrain(exId, dayId) {
   card.classList.remove("is-logged");
   void card.offsetWidth;
   card.classList.add("is-logged"); // brief highlight to orient the user
+}
+
+/* ------------------------------------------------------------------ */
+/* Calendar view — trained days + planned days                          */
+/* ------------------------------------------------------------------ */
+const calendar = {
+  month: null, // Date at the 1st of the displayed month
+  logsByDate: new Map(), // "YYYY-MM-DD" (local) -> [logs]
+  planned: new Set(), // "YYYY-MM-DD"
+  selectedDate: null, // trained day whose logs are shown
+};
+
+function localISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function startOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+function programNameById(id) {
+  const p = state.programs.find((x) => x.id === id);
+  return p ? p.name : id;
+}
+function prettifyDayId(programId, dayId) {
+  if (!dayId) return "";
+  let tail = dayId;
+  if (programId && dayId.startsWith(programId + "-")) tail = dayId.slice(programId.length + 1);
+  return tail.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+async function renderCalendar() {
+  const wrap = $("#calendarView");
+  if (!calendar.month) calendar.month = startOfMonth(new Date());
+
+  wrap.innerHTML = "";
+  wrap.append(
+    el(
+      "div",
+      { class: "statepanel" },
+      el("div", { class: "statepanel__dot" }),
+      el("p", { class: "statepanel__msg" }, "Loading your calendar…")
+    )
+  );
+
+  try {
+    const [logs, plans] = await Promise.all([
+      apiJSON("/api/logs?limit=1000"),
+      apiJSON("/api/plans").catch(() => []),
+    ]);
+    const byDate = new Map();
+    for (const l of logs) {
+      const key = localISO(new Date(l.performed_at));
+      if (!byDate.has(key)) byDate.set(key, []);
+      byDate.get(key).push(l);
+    }
+    calendar.logsByDate = byDate;
+    calendar.planned = new Set(plans || []);
+    calendar.selectedDate = null;
+    drawCalendar();
+  } catch (err) {
+    if (err.status === 401) return;
+    wrap.innerHTML = "";
+    const panel = el(
+      "div",
+      { class: "statepanel statepanel--error" },
+      el("div", { class: "statepanel__dot" }, "!"),
+      el("p", { class: "statepanel__msg" }, "Couldn't load your calendar."),
+      el("button", { class: "statepanel__retry", type: "button", onClick: renderCalendar }, "Retry")
+    );
+    wrap.append(panel);
+  }
+}
+
+function shiftMonth(delta) {
+  const m = calendar.month;
+  calendar.month = new Date(m.getFullYear(), m.getMonth() + delta, 1);
+  calendar.selectedDate = null;
+  drawCalendar();
+}
+
+function drawCalendar() {
+  const wrap = $("#calendarView");
+  wrap.innerHTML = "";
+
+  const month = calendar.month;
+  const y = month.getFullYear();
+  const mo = month.getMonth();
+  const todayISO = localISO(new Date());
+
+  const prev = el("button", { class: "cal__nav", type: "button", "aria-label": "Previous month" }, "‹");
+  prev.addEventListener("click", () => shiftMonth(-1));
+  const next = el("button", { class: "cal__nav", type: "button", "aria-label": "Next month" }, "›");
+  next.addEventListener("click", () => shiftMonth(1));
+  const header = el(
+    "div",
+    { class: "cal__head" },
+    prev,
+    el("h2", { class: "cal__label", "aria-live": "polite" }, month.toLocaleDateString(undefined, { month: "long", year: "numeric" })),
+    next
+  );
+
+  const legend = el(
+    "div",
+    { class: "cal__legend" },
+    el("span", { class: "cal__leg cal__leg--trained" }, el("i", { "aria-hidden": "true" }), "Trained"),
+    el("span", { class: "cal__leg cal__leg--planned" }, el("i", { "aria-hidden": "true" }), "Planned"),
+    el("span", { class: "cal__leg cal__leg--today" }, el("i", { "aria-hidden": "true" }), "Today")
+  );
+
+  const dowNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const dow = el("div", { class: "cal__dow" }, ...dowNames.map((n) => el("span", {}, n)));
+
+  const grid = el("div", { class: "cal__grid" });
+  const startDow = new Date(y, mo, 1).getDay();
+  const daysInMonth = new Date(y, mo + 1, 0).getDate();
+  const prevMonthDays = new Date(y, mo, 0).getDate();
+
+  for (let i = startDow - 1; i >= 0; i--) grid.append(outsideCell(prevMonthDays - i));
+  for (let d = 1; d <= daysInMonth; d++) grid.append(dayCell(new Date(y, mo, d), todayISO));
+  const trailing = (7 - ((startDow + daysInMonth) % 7)) % 7;
+  for (let d = 1; d <= trailing; d++) grid.append(outsideCell(d));
+
+  wrap.append(header, legend, dow, grid);
+
+  if (calendar.logsByDate.size === 0) {
+    wrap.append(el("p", { class: "cal__empty" }, "No sessions logged yet — trained days will light up here."));
+  }
+
+  wrap.append(el("div", { id: "calDetail", class: "cal__detail" }));
+  if (calendar.selectedDate) renderDayDetail(calendar.selectedDate);
+}
+
+function outsideCell(dnum) {
+  return el(
+    "div",
+    { class: "cal__cell cal__cell--out", "aria-hidden": "true" },
+    el("span", { class: "cal__num" }, String(dnum))
+  );
+}
+
+function dayCell(date, todayISO) {
+  const iso = localISO(date);
+  const logs = calendar.logsByDate.get(iso) || [];
+  const trained = logs.length > 0;
+  const planned = calendar.planned.has(iso);
+  const isToday = iso === todayISO;
+  const dnum = date.getDate();
+  const monthName = date.toLocaleDateString(undefined, { month: "long" });
+
+  const classes = ["cal__cell"];
+  if (trained) classes.push("is-trained");
+  else if (planned) classes.push("is-planned");
+  if (isToday) classes.push("is-today");
+  if (calendar.selectedDate === iso) classes.push("is-selected");
+
+  let aria;
+  if (trained) aria = `${monthName} ${dnum}, trained, ${logs.length} set${logs.length !== 1 ? "s" : ""} — view logs`;
+  else if (planned) aria = `${monthName} ${dnum}, planned — tap to unplan`;
+  else aria = `${monthName} ${dnum}, tap to plan`;
+  if (isToday) aria = "Today — " + aria;
+
+  const marker = trained
+    ? el("span", { class: "cal__count" }, String(logs.length))
+    : planned
+    ? el("span", { class: "cal__pdot", "aria-hidden": "true" })
+    : null;
+
+  const cell = el(
+    "button",
+    { class: classes.join(" "), type: "button", "aria-label": aria, "data-iso": iso },
+    el("span", { class: "cal__num" }, String(dnum)),
+    marker
+  );
+  cell.addEventListener("click", () => {
+    if (trained) openDayLogs(iso);
+    else togglePlanned(iso, cell);
+  });
+  return cell;
+}
+
+async function togglePlanned(iso, cell) {
+  const wasPlanned = calendar.planned.has(iso);
+  if (wasPlanned) calendar.planned.delete(iso);
+  else calendar.planned.add(iso);
+  updateCellPlanned(cell, iso);
+  try {
+    await apiJSON(`/api/plans/${iso}`, { method: wasPlanned ? "DELETE" : "PUT" });
+  } catch (err) {
+    if (wasPlanned) calendar.planned.add(iso);
+    else calendar.planned.delete(iso);
+    updateCellPlanned(cell, iso);
+    if (err.status !== 401) toast(err.message || "Couldn't update your plan.", { type: "err" });
+  }
+}
+
+function updateCellPlanned(cell, iso) {
+  const planned = calendar.planned.has(iso);
+  const isToday = cell.classList.contains("is-today");
+  cell.classList.toggle("is-planned", planned);
+  const existing = cell.querySelector(".cal__pdot");
+  if (existing) existing.remove();
+  if (planned) cell.append(el("span", { class: "cal__pdot", "aria-hidden": "true" }));
+  const dnum = cell.querySelector(".cal__num").textContent;
+  const monthName = calendar.month.toLocaleDateString(undefined, { month: "long" });
+  let aria = planned ? `${monthName} ${dnum}, planned — tap to unplan` : `${monthName} ${dnum}, tap to plan`;
+  if (isToday) aria = "Today — " + aria;
+  cell.setAttribute("aria-label", aria);
+}
+
+function openDayLogs(iso) {
+  calendar.selectedDate = iso;
+  $$("#calendarView .cal__cell").forEach((c) => c.classList.toggle("is-selected", c.dataset.iso === iso));
+  renderDayDetail(iso);
+  const detail = $("#calDetail");
+  if (detail) detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function renderDayDetail(iso) {
+  const detail = $("#calDetail");
+  if (!detail) return;
+  detail.innerHTML = "";
+
+  const logs = (calendar.logsByDate.get(iso) || []).slice();
+  logs.sort((a, b) => new Date(a.performed_at) - new Date(b.performed_at));
+  const dateLabel = new Date(iso + "T00:00:00").toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+
+  detail.append(
+    el(
+      "div",
+      { class: "caldetail__head" },
+      el("h3", { class: "caldetail__title" }, dateLabel),
+      el("span", { class: "caldetail__count" }, `${logs.length} set${logs.length !== 1 ? "s" : ""}`)
+    )
+  );
+
+  // Group consecutive sets by exercise, preserving chronological order.
+  const groups = [];
+  const byEx = new Map();
+  for (const l of logs) {
+    let g = byEx.get(l.exercise_id);
+    if (!g) {
+      g = { ex: l.exercise_name, ctx: `${programNameById(l.program_id)} · ${prettifyDayId(l.program_id, l.day_id)}`, sets: [] };
+      byEx.set(l.exercise_id, g);
+      groups.push(g);
+    }
+    g.sets.push(l);
+  }
+
+  for (const g of groups) {
+    const setList = el("ul", { class: "calsets" });
+    for (const s of g.sets) {
+      const time = new Date(s.performed_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+      setList.append(
+        el(
+          "li",
+          { class: "calset" },
+          el("span", { class: "calset__load", html: loadDisplay(s) }),
+          s.notes ? el("span", { class: "calset__note", title: s.notes }, "✎") : null,
+          el("span", { class: "calset__time" }, time)
+        )
+      );
+    }
+    detail.append(
+      el(
+        "div",
+        { class: "calgroup" },
+        el("div", { class: "calgroup__ex" }, g.ex),
+        el("div", { class: "calgroup__ctx" }, g.ctx),
+        setList
+      )
+    );
+  }
 }
 
 /* ------------------------------------------------------------------ */

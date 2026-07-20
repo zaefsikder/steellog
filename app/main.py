@@ -5,6 +5,7 @@ and (optionally) the static frontend from a single origin.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -17,6 +18,7 @@ from app import programs
 from app.auth import User, current_user
 from app.config import CORS_ORIGINS, OWNER_EMAIL
 from app.database import Base, engine, get_db
+from app.models import PlannedDay
 from app.models import Program as ProgramRow
 from app.models import SetLog
 from app.schemas import (
@@ -300,6 +302,44 @@ def exercise_stats(
         last_weight=latest.weight,
         last_reps=latest.reps,
     )
+
+
+# --- Planned training days (calendar) --------------------------------------
+@app.get("/api/plans", response_model=list[date])
+def list_plans(
+    user: User = Depends(current_user), db: Session = Depends(get_db)
+) -> list[date]:
+    return list(
+        db.scalars(
+            select(PlannedDay.day)
+            .where(PlannedDay.user_id == user.id)
+            .order_by(PlannedDay.day)
+        )
+    )
+
+
+@app.put("/api/plans/{day}", status_code=204)
+def add_plan(
+    day: date,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    # Idempotent: marking an already-planned day is a no-op.
+    if db.get(PlannedDay, (user.id, day)) is None:
+        db.add(PlannedDay(user_id=user.id, day=day))
+        db.commit()
+
+
+@app.delete("/api/plans/{day}", status_code=204)
+def remove_plan(
+    day: date,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    row = db.get(PlannedDay, (user.id, day))
+    if row is not None:
+        db.delete(row)
+        db.commit()
 
 
 @app.get("/api/health")

@@ -2084,6 +2084,290 @@ body.modal-open {
   }
 }
 
+/* ============================ CALENDAR VIEW ============================ */
+.calendar[hidden] {
+  display: none;
+}
+.cal__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.cal__nav {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line-strong);
+  background: var(--iron);
+  color: var(--chalk);
+  border-radius: 11px;
+  font-size: 20px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  transition: border-color 0.15s, transform 0.08s, background 0.15s;
+}
+.cal__nav:hover {
+  border-color: var(--ash);
+  background: var(--raised);
+}
+.cal__nav:active {
+  transform: scale(0.94);
+}
+.cal__label {
+  flex: 1;
+  text-align: center;
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(20px, 6vw, 26px);
+  letter-spacing: -0.01em;
+}
+
+.cal__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.cal__leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--smoke);
+}
+.cal__leg i {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.cal__leg--trained i {
+  background: var(--volt);
+  box-shadow: 0 0 8px rgba(214, 255, 61, 0.5);
+}
+.cal__leg--planned i {
+  background: transparent;
+  border: 1px dashed var(--volt-dim);
+}
+.cal__leg--today i {
+  background: transparent;
+  border: 1px solid var(--chalk);
+}
+
+.cal__dow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.cal__dow span {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+
+.cal__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+.cal__cell {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border: 1px solid var(--line);
+  background: var(--coal);
+  border-radius: 10px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  color: var(--mist);
+  transition: border-color 0.14s, background 0.14s, transform 0.08s;
+}
+button.cal__cell:hover {
+  border-color: var(--ash);
+}
+button.cal__cell:active {
+  transform: scale(0.95);
+}
+.cal__num {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+}
+.cal__cell--out {
+  background: transparent;
+  border-color: transparent;
+  color: var(--ash);
+  opacity: 0.4;
+}
+
+/* trained — the hero state */
+.cal__cell.is-trained {
+  background: var(--volt);
+  border-color: var(--volt);
+  color: var(--on-volt);
+  box-shadow: 0 6px 16px -8px rgba(214, 255, 61, 0.6);
+}
+.cal__cell.is-trained .cal__num {
+  font-weight: 700;
+}
+.cal__count {
+  align-self: flex-end;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--on-volt);
+}
+
+/* planned — dashed ring + dot */
+.cal__cell.is-planned {
+  border: 1px dashed var(--volt-dim);
+  background: rgba(214, 255, 61, 0.04);
+  color: var(--chalk);
+}
+.cal__pdot {
+  align-self: flex-end;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--volt-dim);
+}
+
+/* today */
+.cal__cell.is-today {
+  border-color: var(--chalk);
+}
+.cal__cell.is-today.is-trained {
+  box-shadow: 0 0 0 2px var(--void), 0 0 0 3px var(--chalk);
+}
+
+/* selected trained day whose logs are open */
+.cal__cell.is-selected {
+  outline: 2px solid var(--volt);
+  outline-offset: 2px;
+}
+
+.cal__empty {
+  margin-top: 18px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--smoke);
+  padding: 20px;
+  border: 1px dashed var(--steel);
+  border-radius: 12px;
+}
+
+/* day-detail panel */
+.cal__detail {
+  margin-top: 18px;
+}
+.cal__detail:empty {
+  display: none;
+}
+.caldetail__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--steel);
+}
+.caldetail__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(17px, 5vw, 21px);
+  letter-spacing: -0.01em;
+}
+.caldetail__count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--volt);
+  white-space: nowrap;
+}
+.calgroup {
+  border: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--iron), var(--coal));
+  border-radius: 12px;
+  padding: 12px 13px;
+  margin-bottom: 10px;
+}
+.calgroup__ex {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15.5px;
+  line-height: 1.15;
+}
+.calgroup__ctx {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--smoke);
+  margin: 2px 0 10px;
+}
+.calsets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.calset {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.calset__load {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--chalk);
+  font-variant-numeric: tabular-nums;
+}
+.calset__load small {
+  color: var(--smoke);
+  font-weight: 500;
+}
+.calset__load .histrow__bw {
+  color: var(--volt-dim);
+}
+.calset__note {
+  color: var(--volt-dim);
+  font-size: 12px;
+  cursor: help;
+}
+.calset__time {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+
 /* ============================ AUTH GATE ============================ */
 body.auth-gated {
   overflow: hidden;
@@ -2256,6 +2540,44 @@ body.auth-gated {
 }
 .authtoggle:hover {
   color: var(--volt);
+}
+.authlink {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  background: none;
+  border: none;
+  color: var(--smoke);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 4px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s;
+}
+.authlink:hover {
+  color: var(--chalk);
+}
+.authnote {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--mist);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  padding: 11px 13px;
+  margin-bottom: 4px;
+}
+.authnote[hidden] {
+  display: none;
+}
+.authnote--ok {
+  color: var(--volt);
+  background: rgba(214, 255, 61, 0.07);
+  border-color: rgba(214, 255, 61, 0.3);
+  margin-bottom: 16px;
 }
 .authlink {
   display: block;
