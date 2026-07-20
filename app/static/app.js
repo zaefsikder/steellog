@@ -148,6 +148,50 @@ async function authSignOut() {
   } catch (_) {}
 }
 
+// Request a password-reset email. The link lands back on `redirectTo?token=…`.
+// Prefer the newer requestPasswordReset(); fall back to forgetPassword().
+async function authRequestReset(email, redirectTo) {
+  const client = await getAuthClient();
+  if (client) {
+    const fn =
+      typeof client.requestPasswordReset === "function"
+        ? client.requestPasswordReset.bind(client)
+        : client.forgetPassword.bind(client);
+    const { error } = unwrap(await fn({ email, redirectTo }));
+    if (error) throw new Error(error.message || "Couldn't send the reset email.");
+    return;
+  }
+  // REST fallback: newer /request-password-reset, older /forget-password.
+  for (const path of ["/request-password-reset", "/forget-password"]) {
+    const r = await fetch(`${AUTH_BASE}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, redirectTo }),
+    });
+    if (r.ok) return;
+    if (r.status !== 404) throw new Error((await safeErr(r)) || "Couldn't send the reset email.");
+  }
+  throw new Error("Couldn't send the reset email.");
+}
+
+// Set a new password using the token from the emailed link.
+async function authResetPassword(newPassword, token) {
+  const client = await getAuthClient();
+  if (client) {
+    const { error } = unwrap(await client.resetPassword({ newPassword, token }));
+    if (error) throw new Error(error.message || "Couldn't reset the password.");
+    return;
+  }
+  const r = await fetch(`${AUTH_BASE}/reset-password`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ newPassword, token }),
+  });
+  if (!r.ok) throw new Error((await safeErr(r)) || "Couldn't reset the password.");
+}
+
 // A 401 that survives a token refresh drops the user back to the login screen.
 function handleAuthFailure() {
   if (authFailing) return;
@@ -2161,7 +2205,7 @@ function showLoginScreen() {
   renderLogin(ensureGate());
 }
 
-function renderLogin(gate) {
+function renderLogin(gate, notice) {
   const signup = authMode === "signup";
 
   const emailIn = el("input", {
@@ -2213,6 +2257,18 @@ function renderLogin(gate) {
     if (em) em.focus();
   });
 
+  // "Forgot password?" only makes sense on the sign-in card.
+  let forgotLink = null;
+  if (!signup) {
+    forgotLink = el("button", { class: "authlink", type: "button" }, "Forgot password?");
+    forgotLink.addEventListener("click", () => {
+      authMode = "forgot";
+      renderForgot(gate);
+    });
+  }
+
+  const noticeBox = notice ? el("div", { class: "authnote authnote--ok", role: "status" }, notice) : null;
+
   gate.innerHTML = "";
   gate.append(
     el(
@@ -2221,12 +2277,209 @@ function renderLogin(gate) {
       brandMark(),
       el("p", { class: "authgate__tag" }, "Your training ledger — locked to you."),
       el("h1", { class: "authgate__title" }, signup ? "Create your account" : "Welcome back"),
+      noticeBox,
       form,
+      forgotLink,
       toggle
     )
   );
   const em = $("#authEmail");
   if (em) em.focus();
+}
+
+/* ---- Step 1: request a reset link ---- */
+function renderForgot(gate) {
+  const emailIn = el("input", {
+    id: "authEmail", class: "authfield", type: "email", placeholder: "you@email.com",
+    autocomplete: "email", autocapitalize: "none", spellcheck: "false", "aria-label": "Email",
+  });
+  const errBox = el("div", { id: "authErr", class: "autherr", role: "alert", hidden: true });
+  const note = el("div", { class: "authnote", role: "status", hidden: true });
+  const submit = el(
+    "button",
+    { class: "authsubmit", type: "submit" },
+    el("span", { class: "authsubmit__label" }, "Send reset link"),
+    el("span", { class: "authsubmit__spin", "aria-hidden": "true" })
+  );
+
+  const form = el(
+    "form",
+    { class: "authform", novalidate: "" },
+    el("label", { class: "authrow" }, el("span", { class: "authrow__label" }, "Email"), emailIn),
+    errBox,
+    note,
+    submit
+  );
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    doRequestReset({ email: emailIn.value, emailIn, submit, errBox, note });
+  });
+
+  const back = el("button", { class: "authtoggle", type: "button" }, "← Back to sign in");
+  back.addEventListener("click", () => {
+    authMode = "signin";
+    renderLogin(gate);
+    const em = $("#authEmail");
+    if (em) em.focus();
+  });
+
+  gate.innerHTML = "";
+  gate.append(
+    el(
+      "div",
+      { class: "authgate__card" },
+      brandMark(),
+      el("p", { class: "authgate__tag" }, "Locked out? Let's fix that."),
+      el("h1", { class: "authgate__title" }, "Reset your password"),
+      form,
+      back
+    )
+  );
+  const em = $("#authEmail");
+  if (em) em.focus();
+}
+
+async function doRequestReset({ email, emailIn, submit, errBox, note }) {
+  errBox.hidden = true;
+  note.hidden = true;
+  email = (email || "").trim();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    showAuthErr(errBox, "Enter a valid email address.");
+    return;
+  }
+
+  submit.classList.add("is-busy");
+  submit.disabled = true;
+  const redirectTo = window.location.origin + window.location.pathname;
+  try {
+    await authRequestReset(email, redirectTo);
+  } catch (_) {
+    // Swallow: never reveal whether the address has an account.
+  } finally {
+    submit.classList.remove("is-busy");
+  }
+  // Neutral confirmation regardless of outcome.
+  note.textContent =
+    "If that email has an account, a reset link is on its way. Check your inbox (and spam).";
+  note.hidden = false;
+  submit.disabled = true;
+  submit.querySelector(".authsubmit__label").textContent = "Link sent";
+  if (emailIn) emailIn.disabled = true;
+}
+
+/* ---- Step 2: set a new password from the emailed link ---- */
+function renderResetPassword(gate, token, error) {
+  if (error && !token) {
+    renderResetError(gate);
+    return;
+  }
+
+  const passIn = el("input", {
+    id: "authPass", class: "authfield", type: "password", placeholder: "new password",
+    autocomplete: "new-password", "aria-label": "New password",
+  });
+  const confirmIn = el("input", {
+    id: "authPass2", class: "authfield", type: "password", placeholder: "confirm new password",
+    autocomplete: "new-password", "aria-label": "Confirm new password",
+  });
+  const errBox = el("div", { id: "authErr", class: "autherr", role: "alert", hidden: true });
+  const submit = el(
+    "button",
+    { class: "authsubmit", type: "submit" },
+    el("span", { class: "authsubmit__label" }, "Update password"),
+    el("span", { class: "authsubmit__spin", "aria-hidden": "true" })
+  );
+
+  const form = el(
+    "form",
+    { class: "authform", novalidate: "" },
+    el("label", { class: "authrow" }, el("span", { class: "authrow__label" }, "New password"), passIn),
+    el("label", { class: "authrow" }, el("span", { class: "authrow__label" }, "Confirm password"), confirmIn),
+    errBox,
+    submit
+  );
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    doResetPassword({ token, password: passIn.value, confirm: confirmIn.value, submit, errBox, gate });
+  });
+
+  gate.innerHTML = "";
+  gate.append(
+    el(
+      "div",
+      { class: "authgate__card" },
+      brandMark(),
+      el("p", { class: "authgate__tag" }, "Almost there."),
+      el("h1", { class: "authgate__title" }, "Set a new password"),
+      form
+    )
+  );
+  const p = $("#authPass");
+  if (p) p.focus();
+}
+
+function renderResetError(gate) {
+  const again = el("button", { class: "authsubmit", type: "button" }, "Request a new link");
+  again.addEventListener("click", () => {
+    clearResetTokenFromUrl();
+    authMode = "forgot";
+    renderForgot(gate);
+  });
+  gate.innerHTML = "";
+  gate.append(
+    el(
+      "div",
+      { class: "authgate__card" },
+      brandMark(),
+      el("h1", { class: "authgate__title" }, "Link expired"),
+      el(
+        "div",
+        { class: "autherr", role: "alert" },
+        "This reset link is invalid or has expired. Request a fresh one below."
+      ),
+      again
+    )
+  );
+}
+
+async function doResetPassword({ token, password, confirm, submit, errBox, gate }) {
+  errBox.hidden = true;
+  password = password || "";
+  confirm = confirm || "";
+  if (password.length < 8) {
+    showAuthErr(errBox, "Password must be at least 8 characters.");
+    return;
+  }
+  if (password !== confirm) {
+    showAuthErr(errBox, "Those passwords don't match.");
+    return;
+  }
+  if (!token) {
+    showAuthErr(errBox, "Missing reset token — request a new link.");
+    return;
+  }
+
+  submit.classList.add("is-busy");
+  submit.disabled = true;
+  try {
+    await authResetPassword(password, token);
+    clearResetTokenFromUrl();
+    authMode = "signin";
+    renderLogin(gate, "Password updated — sign in with your new password.");
+  } catch (_) {
+    showAuthErr(
+      errBox,
+      "This reset link is invalid or has expired. Request a new one from “Forgot password?”."
+    );
+    submit.classList.remove("is-busy");
+    submit.disabled = false;
+  }
+}
+
+function clearResetTokenFromUrl() {
+  try {
+    history.replaceState(null, "", window.location.origin + window.location.pathname);
+  } catch (_) {}
 }
 
 function showAuthErr(box, msg) {
@@ -2330,6 +2583,16 @@ async function bootstrapAuth() {
   if (!AUTH_ENABLED) {
     hideAuthGate();
     startApp();
+    return;
+  }
+  // A password-reset link from email lands back here as `?token=…` (or
+  // `?error=…` if it's invalid/expired). Handle that before the session check
+  // so the reset view shows even for a logged-out visitor.
+  const params = new URLSearchParams(window.location.search);
+  const resetToken = params.get("token");
+  const resetError = params.get("error");
+  if (resetToken || resetError) {
+    renderResetPassword(ensureGate(), resetToken, resetError);
     return;
   }
   showAuthChecking();
