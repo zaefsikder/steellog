@@ -739,6 +739,91 @@ a {
   border-color: rgba(208, 163, 255, 0.32);
   background: rgba(208, 163, 255, 0.07);
 }
+.pill--adhoc {
+  color: var(--smoke);
+  border-color: var(--line-strong);
+  border-style: dashed;
+  background: transparent;
+}
+
+/* ad-hoc (off-program) card */
+.card--adhoc {
+  border-style: dashed;
+  border-color: var(--steel);
+}
+.card__nameinput {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  background: var(--void);
+  color: var(--chalk);
+  border-radius: 9px;
+  padding: 9px 11px;
+  margin: 0 0 7px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.card__nameinput::placeholder {
+  color: var(--ash);
+  font-weight: 600;
+}
+.card__nameinput:focus {
+  outline: none;
+  border-color: var(--volt);
+  box-shadow: 0 0 0 3px rgba(214, 255, 61, 0.14);
+}
+.card__nameinput:read-only {
+  border-color: transparent;
+  background: transparent;
+  padding-left: 0;
+  cursor: default;
+}
+.card__nameinput:read-only:focus {
+  box-shadow: none;
+}
+
+/* "+ Add exercise" tile at the end of the day list */
+.addtile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  min-height: 76px;
+  padding: 14px;
+  border: 1px dashed rgba(214, 255, 61, 0.4);
+  background: rgba(214, 255, 61, 0.04);
+  border-radius: 16px;
+  color: var(--volt);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  transition: background 0.16s, border-color 0.16s, transform 0.08s;
+}
+.addtile:hover {
+  background: rgba(214, 255, 61, 0.08);
+  border-color: rgba(214, 255, 61, 0.6);
+}
+.addtile:active {
+  transform: scale(0.99);
+}
+.addtile__plus {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+.addtile__hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--smoke);
+  font-weight: 400;
+}
 
 .card__toggle {
   flex: 0 0 auto;

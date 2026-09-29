@@ -667,21 +667,94 @@ function renderDay() {
     listEl.append(card);
   });
 
-  // hydrate last-time + history from a single program-logs fetch
+  // "+" affordance for logging a one-off exercise done outside the plan
+  listEl.append(buildAddTile());
+
+  // hydrate last-time + history (also restores today's ad-hoc cards)
   hydrateHistory();
 }
 
-function buildExerciseCard(ex) {
-  const card = el("article", { class: "card", "data-ex": ex.id });
-  card.dataset.name = ex.name;
+/* ---- ad-hoc (off-program) exercises ---- */
+let adhocSeq = 0;
+const slug = (s) =>
+  (s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "exercise";
+const shortRand = () => Math.random().toString(36).slice(2, 8);
 
-  // head
-  const title = el("h3", { class: "card__title" }, ex.name);
-  if (ex.category) {
-    title.append(
-      " ",
-      el("span", { class: `pill pill--${pillClass(ex.category)}` }, ex.category)
+function buildAddTile() {
+  const btn = el(
+    "button",
+    { id: "addAdhocBtn", class: "addtile", type: "button" },
+    el("span", { class: "addtile__plus", "aria-hidden": "true" }, "+"),
+    el("span", {}, "Add exercise"),
+    el("span", { class: "addtile__hint" }, "log something off-plan")
+  );
+  btn.addEventListener("click", () => addAdhocCard());
+  return btn;
+}
+
+// Insert a blank (or restored) ad-hoc card just before the add-tile.
+function addAdhocCard(opts = {}) {
+  const restoring = Array.isArray(opts.logs) && opts.logs.length > 0;
+  const ex = {
+    id: opts.id || `adhoc-tmp-${++adhocSeq}`,
+    name: opts.name || "",
+    category: "",
+    sets: "",
+    reps: "",
+    weight: "",
+    notes: "",
+    adhoc: true,
+    idAssigned: !!opts.id,
+  };
+  const card = buildExerciseCard(ex, { adhoc: true });
+
+  const tile = $("#addAdhocBtn");
+  if (tile && tile.parentNode) tile.parentNode.insertBefore(card, tile);
+  else $("#exerciseList").append(card);
+
+  const nameInput = card.querySelector(".card__nameinput");
+  if (restoring) {
+    if (nameInput) nameInput.readOnly = true;
+    updateLastLine(card, opts.logs);
+  } else if (nameInput) {
+    nameInput.focus();
+    card.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  return card;
+}
+
+function buildExerciseCard(ex, opts = {}) {
+  const adhoc = !!opts.adhoc;
+  const card = el("article", { class: "card" + (adhoc ? " card--adhoc" : ""), "data-ex": ex.id });
+  card.dataset.name = ex.name || "";
+
+  // head — a static title, or (ad-hoc) an editable name input
+  let titleWrap;
+  if (adhoc) {
+    const nameInput = el("input", {
+      class: "card__nameinput", type: "text", placeholder: "Exercise name",
+      autocomplete: "off", "aria-label": "Ad-hoc exercise name", maxlength: "80", value: ex.name || "",
+    });
+    nameInput.addEventListener("input", () => {
+      ex.name = nameInput.value;
+      nameInput.style.borderColor = "";
+    });
+    titleWrap = el(
+      "div",
+      { class: "card__titlewrap" },
+      nameInput,
+      el("span", { class: "pill pill--adhoc" }, "Ad-hoc")
     );
+  } else {
+    const title = el("h3", { class: "card__title" }, ex.name);
+    if (ex.category) {
+      title.append(" ", el("span", { class: `pill pill--${pillClass(ex.category)}` }, ex.category));
+    }
+    titleWrap = el("div", { class: "card__titlewrap" }, title);
   }
   const toggle = el(
     "button",
@@ -694,19 +767,20 @@ function buildExerciseCard(ex) {
     el("span", { class: "chev" }, "▾")
   );
   toggle.addEventListener("click", () => toggleMemory(card));
-  card.append(
-    el("div", { class: "card__head" }, el("div", { class: "card__titlewrap" }, title), toggle)
-  );
+  card.append(el("div", { class: "card__head" }, titleWrap, toggle));
 
-  // prescription readout
-  const rx = el(
-    "div",
-    { class: "rx" },
-    rxCell("Sets", ex.sets),
-    rxCell("Reps", ex.reps),
-    rxCell("Work", ex.weight, true)
-  );
-  card.append(rx);
+  // prescription readout — program cards only (ad-hoc has no plan)
+  if (!adhoc) {
+    card.append(
+      el(
+        "div",
+        { class: "rx" },
+        rxCell("Sets", ex.sets),
+        rxCell("Reps", ex.reps),
+        rxCell("Work", ex.weight, true)
+      )
+    );
+  }
 
   // notes (collapsible if long)
   if (ex.notes && ex.notes.trim()) {
@@ -812,6 +886,30 @@ function buildLogger(ex) {
 }
 
 async function submitLog(ex, { weight, reps, note, btn, form }) {
+  const card = form.closest(".card");
+
+  // Ad-hoc cards: name is required, and the exercise_id is minted from the
+  // name on the first log, then kept stable so later sets group under it.
+  let nameInput = null;
+  if (ex.adhoc) {
+    nameInput = card.querySelector(".card__nameinput");
+    const name = (nameInput.value || "").trim();
+    if (!name) {
+      nameInput.focus();
+      nameInput.style.borderColor = "var(--ember)";
+      setTimeout(() => (nameInput.style.borderColor = ""), 1400);
+      toast("Name this exercise first.", { type: "err" });
+      return;
+    }
+    ex.name = name;
+    if (!ex.idAssigned) {
+      ex.id = `adhoc-${slug(name)}-${shortRand()}`;
+      ex.idAssigned = true;
+      card.dataset.ex = ex.id;
+    }
+    card.dataset.name = name;
+  }
+
   const wRaw = weight.value.trim();
   const rRaw = reps.value.trim();
 
@@ -857,7 +955,9 @@ async function submitLog(ex, { weight, reps, note, btn, form }) {
     arr.unshift(log);
     state.logsByExercise.set(ex.id, arr);
 
-    const card = form.closest(".card");
+    // Ad-hoc: lock the name now that it has history attached.
+    if (ex.adhoc && nameInput) nameInput.readOnly = true;
+
     celebrate(card);
     updateLastLine(card, arr);
 
@@ -1117,6 +1217,20 @@ async function hydrateHistory() {
   }
   // logs already come newest-first from the API
   state.logsByExercise = map;
+
+  // Restore ad-hoc cards logged TODAY on THIS day that aren't in the program,
+  // so a mid-workout reload brings them (and their sets) back.
+  const todayISO = localISO(new Date());
+  const programExIds = new Set(state.program.days.flatMap((d) => d.exercises.map((e) => e.id)));
+  for (const [exId, arr] of map) {
+    if (programExIds.has(exId)) continue;
+    const belongsHereToday = arr.some(
+      (l) => l.day_id === state.dayId && localISO(new Date(l.performed_at)) === todayISO
+    );
+    if (!belongsHereToday) continue;
+    if (document.querySelector(`.card[data-ex="${cssEsc(exId)}"]`)) continue;
+    addAdhocCard({ id: exId, name: arr[0].exercise_name, logs: arr });
+  }
 
   // paint last-line for every visible card
   $$(".card").forEach((card) => {
